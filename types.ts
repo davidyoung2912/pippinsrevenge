@@ -3,7 +3,8 @@ export enum GameState {
   START = 'START',
   PLAYING = 'PLAYING',
   GAME_OVER = 'GAME_OVER',
-  VICTORY = 'VICTORY'
+  VICTORY = 'VICTORY',
+  PAUSED = 'PAUSED'
 }
 
 export interface Position {
