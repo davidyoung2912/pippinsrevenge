@@ -1,9 +1,16 @@
+
 import React, { useState, useEffect } from 'react';
 import GameCanvas from './components/GameCanvas';
 import { GameState, ActivePowerUp } from './types';
 import { SPRITES, PALETTES, POWERUP_DURATION } from './constants';
 
-const SpriteIcon = ({ sprite, palette }: { sprite: number[][], palette: string[] }) => (
+// Use React.FC to properly handle reserved props like 'key' in TypeScript
+interface SpriteIconProps {
+  sprite: number[][];
+  palette: string[];
+}
+
+const SpriteIcon: React.FC<SpriteIconProps> = ({ sprite, palette }) => (
   <svg width="24" height="24" viewBox={`0 0 ${sprite[0].length} ${sprite.length}`} className="block" style={{ imageRendering: 'pixelated' }}>
     {sprite.flatMap((row, y) =>
       row.map((val, x) => {

@@ -28,6 +28,9 @@ export interface Entity {
   sprite: number[][]; // 0 for empty, 1,2,3 for palette index
   spriteKey?: string; // Key for cached sprite lookups
   active: boolean;
+  // UFO specific optional fields
+  behaviorState?: 'NORMAL' | 'PAUSED' | 'FAST';
+  behaviorTimer?: number;
 }
 
 export interface Enemy extends Entity {
@@ -45,11 +48,13 @@ export interface Enemy extends Entity {
   divepath: Position[] | null;
   diveIndex: number;
   diveTimer: number; 
-  diveType?: 'WIDE_SINE' | 'SWOOP' | 'DIRECT' | 'CIRCLE_DIVE' | 'SPIRAL' | 'FIGURE_EIGHT' | 'BUNGEE';
+  diveType?: 'WIDE_SINE' | 'SWOOP' | 'DIRECT' | 'CIRCLE_DIVE' | 'SPIRAL' | 'FIGURE_EIGHT' | 'BUNGEE' | 'CIRCLE_BACK';
   diveStartX?: number;
   diveStartY?: number;
   diveTargetX?: number;
   diveDirection?: number; // 1 or -1 for arc direction
+  divePhase?: number;
+  diveAngle?: number;
 
   // Cloaking
   cloakState: 'NONE' | 'FADING_OUT' | 'INVISIBLE' | 'FADING_IN';
