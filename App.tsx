@@ -25,7 +25,7 @@ const SpriteIcon: React.FC<SpriteIconProps> = ({ sprite, palette }) => (
 function App() {
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
-  const [gameState, setGameState] = useState<GameState>(GameState.START);
+  const [gameState, setGameState] = useState<GameState>(GameState.INTRO);
   const [highScore, setHighScore] = useState(0);
   const [activePowerUps, setActivePowerUps] = useState<ActivePowerUp[]>([]);
 

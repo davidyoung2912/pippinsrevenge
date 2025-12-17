@@ -1,5 +1,6 @@
 
 export enum GameState {
+  INTRO = 'INTRO',
   START = 'START',
   PLAYING = 'PLAYING',
   GAME_OVER = 'GAME_OVER',
@@ -48,13 +49,14 @@ export interface Enemy extends Entity {
   divepath: Position[] | null;
   diveIndex: number;
   diveTimer: number; 
-  diveType?: 'WIDE_SINE' | 'SWOOP' | 'DIRECT' | 'CIRCLE_DIVE' | 'SPIRAL' | 'FIGURE_EIGHT' | 'BUNGEE' | 'CIRCLE_BACK';
+  diveType?: 'WIDE_SINE' | 'SWOOP' | 'DIRECT' | 'CIRCLE_DIVE' | 'SPIRAL' | 'FIGURE_EIGHT' | 'BUNGEE' | 'CIRCLE_BACK' | 'DOUBLE_CIRCLE' | 'SINE_DIVE';
   diveStartX?: number;
   diveStartY?: number;
   diveTargetX?: number;
   diveDirection?: number; // 1 or -1 for arc direction
   divePhase?: number;
   diveAngle?: number;
+  diveCycles?: number;
 
   // Cloaking
   cloakState: 'NONE' | 'FADING_OUT' | 'INVISIBLE' | 'FADING_IN';

@@ -8,7 +8,7 @@ export const ENEMY_LASER_SPEED = 8;
 export const FIRE_COOLDOWN_DEFAULT = 18; // Slightly faster fire rate
 export const FIRE_COOLDOWN_RAPID = 9; 
 export const STAR_COUNT = 300; 
-export const POWERUP_DURATION = 600; 
+export const POWERUP_DURATION = 300; 
 
 // Sprites defined as 0/1/2/3 grids. 
 // 0 = Transparent

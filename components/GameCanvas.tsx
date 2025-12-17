@@ -47,6 +47,17 @@ const LIFE_THRESHOLDS = [20000, 50000, 100000];
 // Pattern sequence for levels including new Swirl pattern (6)
 const PATTERN_SEQUENCE = [0, 4, 1, 6, 5, 2, 4, 3, 5, 6];
 
+// Intro lines
+const INTRO_LINES = [
+  "A long time ago...",
+  "In a galaxy far, far away...",
+  "Dogs and cats had a truce",
+  "To never eat the other's treats",
+  "Until Snowball came along",
+  "And stole all the Pup-Peroni",
+  "Captain Pippin to the Rescue!"
+];
+
 const GameCanvas: React.FC<GameCanvasProps> = ({ 
   onScoreUpdate, 
   onLivesUpdate,
@@ -69,6 +80,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const spawnQueueRef = useRef<Enemy[]>([]); 
   const spawnTimerRef = useRef(0);
   
+  // Intro Sequence Ref
+  const introTimeElapsedRef = useRef(0);
+
   // Mystery Ship Ref
   const mysteryShipRef = useRef<Entity | null>(null);
   const mysteryShipCooldownRef = useRef(1000); 
@@ -363,7 +377,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             color = COLORS.BOSS;
             palette = PALETTES.BOSS;
             score = 1000;
-            hp = 4 + level;
+            // SLOWER BOSS HP SCALING: Every 3 levels instead of every level
+            hp = 4 + Math.floor(level / 3);
         } else if (r === 0) {
             if (c % 2 === 0) {
                 type = 'BUTTERFLY';
@@ -590,6 +605,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const x = (touch.clientX - rect.left) * (CANVAS_WIDTH / rect.width);
     const y = (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
 
+    if (gameState === GameState.INTRO) {
+        setGameState(GameState.START);
+        return;
+    }
+
     if (gameState === GameState.PLAYING) {
         if (y > CANVAS_HEIGHT * 0.75) {
             touchXRef.current = x;
@@ -625,6 +645,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
+      if (gameState === GameState.INTRO) {
+          setGameState(GameState.START);
+          return;
+      }
       if (gameState === GameState.PLAYING) {
           setGameState(GameState.PAUSED);
           stopUfoSound();
@@ -672,6 +696,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       lastTimeRef.current = time;
 
       const input = pollInput();
+
+      if (gameState === GameState.INTRO) {
+          introTimeElapsedRef.current += dt;
+          const lineDuration = 3000;
+          const totalIntroTime = INTRO_LINES.length * lineDuration;
+          if (introTimeElapsedRef.current >= totalIntroTime + 1000) {
+              setGameState(GameState.START);
+          }
+      }
 
       if (gameState === GameState.START || gameState === GameState.GAME_OVER) {
           if (input.start || input.fire) {
@@ -838,11 +871,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
           if (gameState === GameState.PLAYING) {
               if (enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0) {
+                  // Clear bullets immediately when enemies are gone
+                  if (waveTimerRef.current === 0) {
+                      bulletsRef.current = [];
+                  }
+                  
                   waveTimerRef.current += dt;
                   if (waveTimerRef.current > 3000) {
                       waveTimerRef.current = 0;
                       setGameState(GameState.VICTORY);
-                      bulletsRef.current = []; // User wants bullets gone when warp starts
+                      bulletsRef.current = []; // Ensure cleared again
                       activePowerUpsRef.current = []; 
                       powerUpsRef.current = []; 
                       onActivePowerUpsChange([]); 
@@ -896,7 +934,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   }
               }
 
-              if (playerRef.current && playerRef.current.active && respawnStateRef.current === 'NONE') {
+              const isVictorySequence = enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0;
+
+              if (playerRef.current && playerRef.current.active && respawnStateRef.current === 'NONE' && !isVictorySequence) {
                   if (input.left) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
                   if (input.right) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
                   if (touchXRef.current !== null) {
@@ -908,6 +948,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   playerRef.current.pos.x = Math.max(10, Math.min(CANVAS_WIDTH - playerRef.current.width - 10, playerRef.current.pos.x));
 
                   if (fireCooldownRef.current > 0) fireCooldownRef.current -= 1 * timeScale;
+                  // check isMobileRef.current to determine auto-firing behavior
                   const shouldFire = input.fire || (isMobileRef.current && fireCooldownRef.current <= 0);
                   const isRapidFire = activePowerUpsRef.current.some(p => p.type === 'RAPID_FIRE');
                   const playerBullets = bulletsRef.current.filter(b => b.owner === 'PLAYER');
@@ -957,7 +998,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               }
 
               const isFormationComplete = spawnQueueRef.current.length === 0 && !enemiesRef.current.some(e => e.state === 'ENTERING');
-              const maxConcurrentDivers = 2 + Math.floor((levelRef.current - 1) / 2);
+              // SLOWER GROWTH OF CONCURRENT DIVERS: Every 4 levels instead of every 2
+              const maxConcurrentDivers = 2 + Math.floor((levelRef.current - 1) / 4);
               let currentDivers = enemiesRef.current.filter(e => e.state === 'DIVING').length;
 
               if (diveCooldownRef.current > 0) {
@@ -1014,12 +1056,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                                 playSound('dive');
                                 
                                 // Randomly assign special dive patterns
-                                if (Math.random() < 0.25) {
-                                    enemy.diveType = 'CIRCLE_BACK';
-                                    enemy.divePhase = 0;
-                                } else {
-                                    enemy.diveType = 'DIRECT';
-                                }
+                                const r = Math.random();
+                                if (r < 0.1) enemy.diveType = 'DOUBLE_CIRCLE';
+                                else if (r < 0.4) enemy.diveType = 'CIRCLE_BACK';
+                                else if (r < 0.6) enemy.diveType = 'SINE_DIVE';
+                                else enemy.diveType = 'DIRECT';
+                                
+                                enemy.diveCycles = 0;
+                                enemy.diveAngle = 0;
+                                enemy.divePhase = 0;
 
                                 if (levelRef.current >= 3 && enemy.cloakState === 'NONE') {
                                     const cloakChance = Math.min(0.5, 0.1 + (levelRef.current - 3) * 0.05);
@@ -1028,7 +1073,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                                         playSound('cloak');
                                     }
                                 }
-                                const baseSpeed = PLAYER_SPEED * (1.2 + Math.min(levelRef.current * 0.15, 1.3));
+                                // SLOWER SPEED SCALING: 0.05 per level instead of 0.15
+                                const baseSpeed = PLAYER_SPEED * (1.2 + Math.min(levelRef.current * 0.05, 1.3));
                                 if (playerRef.current) {
                                     const angle = Math.atan2(playerRef.current.pos.y - enemy.pos.y, playerRef.current.pos.x - enemy.pos.x);
                                     enemy.vel.dx = Math.cos(angle) * baseSpeed;
@@ -1042,22 +1088,22 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                         }
                       }
                   } else if (enemy.state === 'DIVING') {
-                      if (enemy.diveType === 'CIRCLE_BACK') {
+                      if (enemy.diveType === 'CIRCLE_BACK' || enemy.diveType === 'DOUBLE_CIRCLE') {
                           if (enemy.divePhase === 0) { // Dropping straight down
-                              enemy.pos.y += enemy.vel.dy * timeScale;
-                              enemy.pos.x += enemy.vel.dx * 0.3 * timeScale; // reduced drift during drop
-                              if (enemy.pos.y > CANVAS_HEIGHT * 0.4) { // Start circle at 40% height
+                              enemy.pos.y += enemy.vel.dy * 0.9 * timeScale;
+                              enemy.pos.x += enemy.vel.dx * 0.1 * timeScale; 
+                              if (enemy.pos.y > CANVAS_HEIGHT * 0.65) { // Start circle much lower (65% height)
                                   enemy.divePhase = 1;
                                   enemy.diveAngle = 0;
-                                  // Circle direction based on side of screen
-                                  enemy.diveDirection = enemy.pos.x < CANVAS_WIDTH / 2 ? -1 : 1;
+                                  // Circle direction TOWARDS center
+                                  enemy.diveDirection = enemy.pos.x < CANVAS_WIDTH / 2 ? 1 : -1;
                                   enemy.diveStartX = enemy.pos.x;
                                   enemy.diveStartY = enemy.pos.y;
                               }
                           } else if (enemy.divePhase === 1) { // In the loop
-                              enemy.diveAngle += 0.12 * timeScale;
-                              const radius = 60;
-                              // Center of circle shifted to the side
+                              enemy.diveAngle! += 0.13 * timeScale;
+                              const radius = 70;
+                              // Center of circle shifted towards screen center
                               const cx = enemy.diveStartX! + (radius * enemy.diveDirection!);
                               const cy = enemy.diveStartY!;
                               // Parametric circle
@@ -1065,20 +1111,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                               enemy.pos.y = cy + Math.sin(enemy.diveAngle!) * radius;
 
                               if (enemy.diveAngle! >= Math.PI * 2) {
-                                  enemy.divePhase = 2; // Finished circle
+                                  enemy.diveCycles!++;
+                                  const maxCycles = enemy.diveType === 'DOUBLE_CIRCLE' ? 2 : 1;
+                                  if (enemy.diveCycles! >= maxCycles) {
+                                      enemy.divePhase = 2; // Finished circles
+                                  } else {
+                                      enemy.diveAngle = 0; // Restart loop
+                                  }
                               }
                           } else { // Resume drop
-                              enemy.pos.x += enemy.vel.dx * timeScale;
-                              enemy.pos.y += enemy.vel.dy * timeScale;
+                              enemy.pos.x += enemy.vel.dx * 1.3 * timeScale;
+                              enemy.pos.y += enemy.vel.dy * 1.3 * timeScale;
                           }
+                      } else if (enemy.diveType === 'SINE_DIVE') {
+                          // Wavy sine dive
+                          enemy.pos.y += enemy.vel.dy * 0.9 * timeScale;
+                          enemy.pos.x += Math.sin(enemy.pos.y / 45) * 5 * timeScale;
                       } else {
                           // Standard linear dive
                           enemy.pos.x += enemy.vel.dx * timeScale;
                           enemy.pos.y += enemy.vel.dy * timeScale;
                       }
 
-                      const baseShootChance = levelRef.current === 1 ? 0.003 : 0.006;
-                      const shootChance = Math.min(0.018, baseShootChance + (levelRef.current * 0.0005));
+                      const baseShootChance = levelRef.current === 1 ? 0.003 : 0.004;
+                      // SLOWER FIRE RATE SCALING: 0.0002 per level instead of 0.0005, and lower cap (0.012)
+                      const shootChance = Math.min(0.012, baseShootChance + (levelRef.current * 0.0002));
                       if (Math.random() < shootChance * timeScale) spawnEnemyBullet(enemy);
 
                       if (enemy.pos.y > CANVAS_HEIGHT + 50) {
@@ -1121,7 +1178,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                               bulletsRef.current = bulletsRef.current.filter(bull => bull.ownerId !== e.id);
                               spawnPowerUp(e.pos.x + e.width/2 - 12, e.pos.y + e.height/2);
                               if (e.state === 'DIVING') {
-                                diveCooldownRef.current = Math.max(10, 80 - (levelRef.current * 4));
+                                // SLOWER PACING: Reduction is less aggressive (3 instead of 4)
+                                diveCooldownRef.current = Math.max(20, 100 - (levelRef.current * 3));
                               }
                           } else {
                               playSound('shield_hit');
@@ -1216,13 +1274,42 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
              ctx.fillRect(s.x, s.y, s.size, s.size);
           });
 
+          if (gameState === GameState.INTRO) {
+              const lineDuration = 3000;
+              const fadeDuration = 500;
+              const holdDuration = 2000;
+              const elapsed = introTimeElapsedRef.current;
+              const lineIndex = Math.floor(elapsed / lineDuration);
+              
+              if (lineIndex < INTRO_LINES.length) {
+                  const lineTime = elapsed % lineDuration;
+                  let opacity = 0;
+                  if (lineTime < fadeDuration) {
+                      opacity = lineTime / fadeDuration;
+                  } else if (lineTime < fadeDuration + holdDuration) {
+                      opacity = 1;
+                  } else {
+                      opacity = 1 - (lineTime - (fadeDuration + holdDuration)) / fadeDuration;
+                  }
+                  
+                  ctx.save();
+                  ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
+                  ctx.fillStyle = '#ffff00';
+                  ctx.textAlign = 'center';
+                  // Switched to a smoother sans-serif font at 28px (25% increase from 22px)
+                  ctx.font = '28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'; 
+                  ctx.fillText(INTRO_LINES[lineIndex], CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+                  ctx.restore();
+              }
+          }
+
           if (playerRef.current && playerRef.current.active && (gameState === GameState.PLAYING || gameState === GameState.VICTORY || gameState === GameState.PAUSED)) {
              const sprite = spriteCacheRef.current['PLAYER'];
              if (sprite) {
                  ctx.drawImage(sprite, playerRef.current.pos.x, playerRef.current.pos.y);
                  const shield = activePowerUpsRef.current.find(p => p.type === 'SHIELD');
                  if (shield) {
-                     const shouldDrawShield = shield.timeLeft > 180 || Math.floor(Date.now() / 100) % 2 === 0;
+                     const shouldDrawShield = shield.timeLeft > (POWERUP_DURATION * 0.3) || Math.floor(Date.now() / 100) % 2 === 0;
                      if (shouldDrawShield) {
                         ctx.strokeStyle = '#0088ff';
                         ctx.lineWidth = 2;
@@ -1259,12 +1346,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               }
           });
 
-          bulletsRef.current.forEach(b => {
-              if (b.active) {
-                  ctx.fillStyle = b.color;
-                  ctx.fillRect(b.pos.x, b.pos.y, b.width, b.height);
-              }
-          });
+          // Only render bullets if NOT in victory state
+          if (gameState !== GameState.VICTORY) {
+            bulletsRef.current.forEach(b => {
+                if (b.active) {
+                    ctx.fillStyle = b.color;
+                    ctx.fillRect(b.pos.x, b.pos.y, b.width, b.height);
+                }
+            });
+          }
 
           particlesRef.current.forEach(p => {
              ctx.fillStyle = p.color;
