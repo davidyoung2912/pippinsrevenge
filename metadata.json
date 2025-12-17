@@ -1,0 +1,5 @@
+{
+  "name": "Retro React Galaga",
+  "description": "A high-fidelity retro arcade space shooter inspired by Galaga. Features Xbox controller support, synthesized sound effects, and procedural enemy waves.",
+  "requestFramePermissions": []
+}
