@@ -42,7 +42,7 @@ function App() {
   }, [score, highScore]);
 
   return (
-    <div className="h-screen max-h-screen bg-neutral-900 flex flex-col items-center justify-center p-2 overflow-hidden">
+    <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-2">
       {/* Arcade Cabinet Header */}
       <div className="w-full max-w-[480px] mb-2 flex items-end text-white font-['Press_Start_2P']">
         <div className="flex flex-col flex-1 items-start">

@@ -1,4 +1,3 @@
-
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { 
   CANVAS_WIDTH, 
@@ -18,7 +17,7 @@ import {
 } from '../constants';
 import { GameState, Entity, Enemy, Bullet, Star, Particle, PowerUp, ActivePowerUp, Position, Barrier, Supernova, PowerUpType } from '../types';
 import { useInput } from '../hooks/useInput';
-import { playSound, startUfoSound, stopUfoSound } from '../utils/sound';
+import { playSound, startUfoSound, stopUfoSound, startIntroAmbience, stopIntroAmbience } from '../utils/sound';
 
 interface GameCanvasProps {
   onScoreUpdate: (score: number) => void;
@@ -42,7 +41,7 @@ interface Nebula {
 }
 
 // Extra life thresholds
-const LIFE_THRESHOLDS = [20000, 50000, 100000];
+const LIFE_THRESHOLDS = [10000, 25000, 40000, 70000, 100000];
 
 // Pattern sequence for levels including new Swirl pattern (6)
 const PATTERN_SEQUENCE = [0, 4, 1, 6, 5, 2, 4, 3, 5, 6];
@@ -80,7 +79,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const spawnQueueRef = useRef<Enemy[]>([]); 
   const spawnTimerRef = useRef(0);
   
-  // Intro Sequence Ref
+  // Intro Sequence State/Refs
+  const [introStarted, setIntroStarted] = useState(false);
   const introTimeElapsedRef = useRef(0);
 
   // Mystery Ship Ref
@@ -93,6 +93,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const bulletsRef = useRef<Bullet[]>([]);
   const powerUpsRef = useRef<PowerUp[]>([]);
   const activePowerUpsRef = useRef<ActivePowerUp[]>([]);
+  const lastActivePowerUpsCountRef = useRef(0);
   const powerUpCooldownsRef = useRef<Record<PowerUpType, number>>({ 'RAPID_FIRE': 0, 'SHIELD': 0 });
   const wasActiveRef = useRef(false); // Track if we need to send a clear update
 
@@ -175,6 +176,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     return () => {
       window.removeEventListener('resize', checkMobile);
       stopUfoSound();
+      stopIntroAmbience();
     };
 
   }, []);
@@ -183,7 +185,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     if (gameState === GameState.PAUSED) {
         stopUfoSound();
     }
-  }, [gameState]);
+    if (gameState === GameState.INTRO) {
+        if (introStarted) startIntroAmbience();
+    } else {
+        stopIntroAmbience();
+    }
+  }, [gameState, introStarted]);
 
   const spawnPlayer = (atCenter = false) => {
     playerRef.current = {
@@ -578,6 +585,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     scoreRef.current = 0;
     livesRef.current = 3;
     levelRef.current = 1;
+    nextLifeThresholdIndexRef.current = 0;
     onScoreUpdate(0);
     onLivesUpdate(3);
     activePowerUpsRef.current = [];
@@ -606,7 +614,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const y = (touch.clientY - rect.top) * (CANVAS_HEIGHT / rect.height);
 
     if (gameState === GameState.INTRO) {
-        setGameState(GameState.START);
+        if (!introStarted) {
+          setIntroStarted(true);
+          startIntroAmbience();
+        } else {
+          setGameState(GameState.START);
+        }
         return;
     }
 
@@ -646,7 +659,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
   const handleMouseDown = (e: React.MouseEvent) => {
       if (gameState === GameState.INTRO) {
-          setGameState(GameState.START);
+          if (!introStarted) {
+            setIntroStarted(true);
+            startIntroAmbience();
+          } else {
+            setGameState(GameState.START);
+          }
           return;
       }
       if (gameState === GameState.PLAYING) {
@@ -656,6 +674,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   useEffect(() => {
+    // Reset jump-tracker whenever the effect restarts
+    lastTimeRef.current = 0;
+    
     let animationFrameId: number;
 
     const handlePlayerHit = () => {
@@ -673,8 +694,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
         createExplosion(playerRef.current.pos.x + playerRef.current.width/2, playerRef.current.pos.y + playerRef.current.height/2, COLORS.PLAYER, 2);
         playerRef.current.active = false;
-        livesRef.current--;
-        onLivesUpdate(livesRef.current);
+        
         playSound('game_over');
         
         bulletsRef.current = []; 
@@ -682,27 +702,41 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         onActivePowerUpsChange([]);
         powerUpsRef.current = [];
 
-        if (livesRef.current > 0) {
-            respawnStateRef.current = 'RETURNING';
-            respawnTimerRef.current = 0;
-            countdownValueRef.current = 3;
-        } else {
-            setGameState(GameState.GAME_OVER);
-        }
+        // Delay the respawn sequence by 1 second to allow the explosion to finish
+        setTimeout(() => {
+            livesRef.current--;
+            onLivesUpdate(livesRef.current);
+
+            if (livesRef.current > 0) {
+                respawnStateRef.current = 'RETURNING';
+                respawnTimerRef.current = 0;
+                countdownValueRef.current = 3;
+            } else {
+                setGameState(GameState.GAME_OVER);
+            }
+        }, 1000);
     };
 
     const loop = (time: number) => {
+      // First frame logic to prevent timestamp jumps
+      if (lastTimeRef.current === 0) {
+        lastTimeRef.current = time;
+      }
       const dt = time - lastTimeRef.current;
       lastTimeRef.current = time;
 
       const input = pollInput();
 
       if (gameState === GameState.INTRO) {
-          introTimeElapsedRef.current += dt;
-          const lineDuration = 3000;
-          const totalIntroTime = INTRO_LINES.length * lineDuration;
-          if (introTimeElapsedRef.current >= totalIntroTime + 1000) {
-              setGameState(GameState.START);
+          if (introStarted) {
+            introTimeElapsedRef.current += dt;
+            const lineDuration = 3000;
+            const totalIntroTime = INTRO_LINES.length * lineDuration;
+            if (introTimeElapsedRef.current >= totalIntroTime + 1000) {
+                setGameState(GameState.START);
+            }
+          } else {
+            introTimeElapsedRef.current = 0;
           }
       }
 
@@ -766,19 +800,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           });
           powerUpsRef.current = powerUpsRef.current.filter(p => p.active);
 
-          let powerUpsChanged = false;
+          const powerUpsCountBefore = activePowerUpsRef.current.length;
           activePowerUpsRef.current.forEach(p => {
               p.timeLeft -= 1 * timeScale;
               if (p.timeLeft <= 0) {
-                  powerUpsChanged = true;
                   powerUpCooldownsRef.current[p.type] = 500 + Math.random() * 500;
               }
           });
           
           activePowerUpsRef.current = activePowerUpsRef.current.filter(p => p.timeLeft > 0);
 
-          if (activePowerUpsRef.current.length > 0 || wasActiveRef.current) {
+          // Only sync power-ups state when list changes to avoid frame churn
+          if (activePowerUpsRef.current.length !== lastActivePowerUpsCountRef.current || wasActiveRef.current) {
               onActivePowerUpsChange([...activePowerUpsRef.current]);
+              lastActivePowerUpsCountRef.current = activePowerUpsRef.current.length;
               wasActiveRef.current = activePowerUpsRef.current.length > 0;
           }
 
@@ -1124,9 +1159,22 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                               enemy.pos.y += enemy.vel.dy * 1.3 * timeScale;
                           }
                       } else if (enemy.diveType === 'SINE_DIVE') {
-                          // Wavy sine dive
+                          // Wavy sine dive with dynamic random width
                           enemy.pos.y += enemy.vel.dy * 0.9 * timeScale;
-                          enemy.pos.x += Math.sin(enemy.pos.y / 45) * 5 * timeScale;
+                          // Increased divisor for slower, smoother wavelength (period)
+                          const currentSineValue = Math.sin(enemy.pos.y / 100);
+                          
+                          // Initialize or recalculate width at the start of each oscillation (zero crossing)
+                          if (enemy.sineWidth === undefined) {
+                              enemy.sineWidth = 4 + Math.random() * 6;
+                          } else if ((currentSineValue >= 0 && (enemy.lastSineValue || 0) < 0) || 
+                                     (currentSineValue < 0 && (enemy.lastSineValue || 0) >= 0)) {
+                              // New random width for the next cycle, limited to half of previous attempt
+                              enemy.sineWidth = 4 + Math.random() * 6; 
+                          }
+                          
+                          enemy.pos.x += currentSineValue * (enemy.sineWidth || 1) * timeScale;
+                          enemy.lastSineValue = currentSineValue;
                       } else {
                           // Standard linear dive
                           enemy.pos.x += enemy.vel.dx * timeScale;
@@ -1174,6 +1222,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                               else if (e.state === 'FORMATION') points = 100;
                               else if (e.state === 'DIVING') points = 250;
                               scoreRef.current += points;
+                              
+                              // Check for extra life thresholds
+                              while (nextLifeThresholdIndexRef.current < LIFE_THRESHOLDS.length && 
+                                     scoreRef.current >= LIFE_THRESHOLDS[nextLifeThresholdIndexRef.current]) {
+                                  livesRef.current++;
+                                  onLivesUpdate(livesRef.current);
+                                  playSound('extend');
+                                  nextLifeThresholdIndexRef.current++;
+                              }
+                              
                               onScoreUpdate(scoreRef.current);
                               bulletsRef.current = bulletsRef.current.filter(bull => bull.ownerId !== e.id);
                               spawnPowerUp(e.pos.x + e.width/2 - 12, e.pos.y + e.height/2);
@@ -1199,6 +1257,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                           stopUfoSound();
                           createExplosion(ufo.pos.x + ufo.width/2, ufo.pos.y + ufo.height/2, '#ff0000', 3);
                           scoreRef.current += 1000;
+                          
+                          // Check for extra life thresholds
+                          while (nextLifeThresholdIndexRef.current < LIFE_THRESHOLDS.length && 
+                                 scoreRef.current >= LIFE_THRESHOLDS[nextLifeThresholdIndexRef.current]) {
+                              livesRef.current++;
+                              onLivesUpdate(livesRef.current);
+                              playSound('extend');
+                              nextLifeThresholdIndexRef.current++;
+                          }
+                          
                           onScoreUpdate(scoreRef.current);
                           playSound('bonus');
                           spawnPowerUp(ufo.pos.x + ufo.width/2 - 12, ufo.pos.y + ufo.height/2);
@@ -1274,7 +1342,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
              ctx.fillRect(s.x, s.y, s.size, s.size);
           });
 
-          if (gameState === GameState.INTRO) {
+          if (gameState === GameState.INTRO && introStarted) {
               const lineDuration = 3000;
               const fadeDuration = 500;
               const holdDuration = 2000;
@@ -1296,7 +1364,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
                   ctx.fillStyle = '#ffff00';
                   ctx.textAlign = 'center';
-                  // Switched to a smoother sans-serif font at 28px (25% increase from 22px)
                   ctx.font = '28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'; 
                   ctx.fillText(INTRO_LINES[lineIndex], CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
                   ctx.restore();
@@ -1346,7 +1413,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               }
           });
 
-          // Only render bullets if NOT in victory state
           if (gameState !== GameState.VICTORY) {
             bulletsRef.current.forEach(b => {
                 if (b.active) {
@@ -1373,17 +1439,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           if (respawnStateRef.current === 'WAITING') {
               ctx.save();
               ctx.textAlign = 'center';
-              
-              // Enhanced Glowing "READY?"
               ctx.shadowBlur = 30;
               ctx.shadowColor = 'rgba(255, 255, 0, 1.0)';
               ctx.fillStyle = '#ffff00';
               ctx.font = '24px "Press Start 2P"';
               ctx.fillText('READY?', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-              // Draw a second time to intensify the bloom
               ctx.shadowBlur = 10;
               ctx.fillText('READY?', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-              
               ctx.shadowBlur = 0;
               ctx.fillStyle = '#ffffff';
               ctx.font = '14px "Press Start 2P"';
@@ -1398,7 +1460,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [gameState, onScoreUpdate, onLivesUpdate, onActivePowerUpsChange, setGameState, highScore, resetGame]);
+  }, [gameState, introStarted, onScoreUpdate, onLivesUpdate, onActivePowerUpsChange, setGameState, highScore, resetGame]);
 
   return (
     <div className="relative">
@@ -1419,6 +1481,22 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             touchAction: 'none'
         }}
       />
+
+      {gameState === GameState.INTRO && !introStarted && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/90 text-white flex-col font-['Press_Start_2P'] z-30 cursor-pointer" 
+          onClick={() => {
+            setIntroStarted(true);
+            startIntroAmbience();
+          }}>
+          <div className="animate-pulse text-center">
+            <h1 className="text-yellow-400 text-2xl mb-8 tracking-widest" style={{ textShadow: '0 0 15px rgba(255,255,0,0.7)'}}>
+              PIPPIN'S REVENGE
+            </h1>
+            <p className="text-xs text-white mb-2 tracking-widest uppercase">A Galaxy in Peril</p>
+            <p className="text-[10px] text-gray-400 mt-10">TAP TO BEGIN MISSION</p>
+          </div>
+        </div>
+      )}
       
       {gameState === GameState.START && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white flex-col font-['Press_Start_2P'] z-20 cursor-pointer" onClick={() => {

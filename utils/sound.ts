@@ -8,11 +8,94 @@ let ufoOsc: OscillatorNode | null = null;
 let ufoGain: GainNode | null = null;
 let ufoLfo: OscillatorNode | null = null;
 
+// Intro Ambience refs
+let introOsc1: OscillatorNode | null = null;
+let introOsc2: OscillatorNode | null = null;
+let introFilter: BiquadFilterNode | null = null;
+let introGain: GainNode | null = null;
+let introLfo: OscillatorNode | null = null;
+
 const getCtx = () => {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
   }
   return audioCtx;
+};
+
+export const startIntroAmbience = () => {
+    try {
+        const ctx = getCtx();
+        if (ctx.state === 'suspended') ctx.resume();
+        if (introOsc1) return;
+
+        introOsc1 = ctx.createOscillator();
+        introOsc2 = ctx.createOscillator();
+        introFilter = ctx.createBiquadFilter();
+        introGain = ctx.createGain();
+        introLfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+
+        // Low frequency detuned saw waves for "beating"
+        introOsc1.type = 'sawtooth';
+        introOsc1.frequency.value = 50; 
+        introOsc2.type = 'sawtooth';
+        introOsc2.frequency.value = 50.7; 
+
+        // Deep space low-pass filter
+        introFilter.type = 'lowpass';
+        introFilter.frequency.value = 300;
+        introFilter.Q.value = 8;
+
+        // Slow LFO for filter sweep
+        introLfo.type = 'sine';
+        introLfo.frequency.value = 0.15; // Very slow sweep
+        lfoGain.gain.value = 250; 
+
+        introLfo.connect(lfoGain);
+        lfoGain.connect(introFilter.frequency);
+
+        introOsc1.connect(introFilter);
+        introOsc2.connect(introFilter);
+        introFilter.connect(introGain);
+        introGain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+        introGain.gain.setValueAtTime(0, now);
+        introGain.gain.linearRampToValueAtTime(0.12, now + 3); // Slow fade in
+
+        introOsc1.start();
+        introOsc2.start();
+        introLfo.start();
+    } catch (e) {}
+};
+
+export const stopIntroAmbience = () => {
+    if (introOsc1) {
+        try {
+            const now = audioCtx?.currentTime || 0;
+            if (introGain) {
+                introGain.gain.cancelScheduledValues(now);
+                introGain.gain.setValueAtTime(introGain.gain.value, now);
+                introGain.gain.linearRampToValueAtTime(0, now + 1.0); // Smooth fade out
+            }
+            const o1 = introOsc1;
+            const o2 = introOsc2;
+            const lfo = introLfo;
+            setTimeout(() => {
+                o1.stop();
+                o2.stop();
+                lfo?.stop();
+                o1.disconnect();
+                o2.disconnect();
+                lfo?.disconnect();
+            }, 1100);
+        } catch(e) {}
+        introOsc1 = null;
+        introOsc2 = null;
+        introFilter = null;
+        introGain = null;
+        introLfo = null;
+    }
 };
 
 export const startUfoSound = () => {

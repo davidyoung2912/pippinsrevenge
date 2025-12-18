@@ -1,4 +1,3 @@
-
 export enum GameState {
   INTRO = 'INTRO',
   START = 'START',
@@ -57,6 +56,8 @@ export interface Enemy extends Entity {
   divePhase?: number;
   diveAngle?: number;
   diveCycles?: number;
+  sineWidth?: number;
+  lastSineValue?: number;
 
   // Cloaking
   cloakState: 'NONE' | 'FADING_OUT' | 'INVISIBLE' | 'FADING_IN';
