@@ -1,7 +1,11 @@
+
 export enum GameState {
   INTRO = 'INTRO',
   START = 'START',
   PLAYING = 'PLAYING',
+  CHALLENGE_INTRO = 'CHALLENGE_INTRO',
+  CHALLENGE_PLAYING = 'CHALLENGE_PLAYING',
+  CHALLENGE_RESULTS = 'CHALLENGE_RESULTS',
   GAME_OVER = 'GAME_OVER',
   VICTORY = 'VICTORY',
   PAUSED = 'PAUSED'
@@ -56,8 +60,9 @@ export interface Enemy extends Entity {
   divePhase?: number;
   diveAngle?: number;
   diveCycles?: number;
-  sineWidth?: number;
-  lastSineValue?: number;
+
+  // Challenge logic
+  isChallengeEnemy?: boolean;
 
   // Cloaking
   cloakState: 'NONE' | 'FADING_OUT' | 'INVISIBLE' | 'FADING_IN';

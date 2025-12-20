@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { 
   CANVAS_WIDTH, 
@@ -22,6 +23,7 @@ import { playSound, startUfoSound, stopUfoSound, startIntroAmbience, stopIntroAm
 interface GameCanvasProps {
   onScoreUpdate: (score: number) => void;
   onLivesUpdate: (lives: number) => void;
+  onLevelUpdate: (level: number) => void;
   onActivePowerUpsChange: (powerUps: ActivePowerUp[]) => void;
   gameState: GameState;
   setGameState: (state: GameState) => void;
@@ -60,6 +62,7 @@ const INTRO_LINES = [
 const GameCanvas: React.FC<GameCanvasProps> = ({ 
   onScoreUpdate, 
   onLivesUpdate,
+  onLevelUpdate,
   onActivePowerUpsChange,
   gameState, 
   setGameState,
@@ -82,6 +85,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   // Intro Sequence State/Refs
   const [introStarted, setIntroStarted] = useState(false);
   const introTimeElapsedRef = useRef(0);
+
+  // Challenge Sector Refs
+  const challengeGroupIndexRef = useRef(0);
+  const challengeHitCountRef = useRef(0);
+  const challengeWaveTimerRef = useRef(0);
+  const challengeWaveActiveRef = useRef(false);
+  const challengeUsedTypesRef = useRef<string[]>([]);
+  const challengeUsedPatternsRef = useRef<number[]>([]);
 
   // Mystery Ship Ref
   const mysteryShipRef = useRef<Entity | null>(null);
@@ -259,6 +270,123 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       return path;
   };
 
+  const createComplexSnakePath = (patternIndex: number): Position[] => {
+    const path: Position[] = [];
+    let start: Position, cp1: Position, mid: Position, cp2: Position, end: Position;
+
+    switch(patternIndex) {
+      case 0: // TL to BR
+        start = { x: -50, y: -50 };
+        cp1 = { x: 400, y: 100 };
+        mid = { x: 240, y: 320 };
+        cp2 = { x: 80, y: 500 };
+        end = { x: 530, y: 690 };
+        break;
+      case 1: // BL to TR
+        start = { x: -50, y: 690 };
+        cp1 = { x: 100, y: 200 };
+        mid = { x: 240, y: 320 };
+        cp2 = { x: 380, y: 500 };
+        end = { x: 530, y: -50 };
+        break;
+      case 2: // TR to BL
+        start = { x: 530, y: -50 };
+        cp1 = { x: 100, y: 100 };
+        mid = { x: 240, y: 320 };
+        cp2 = { x: 400, y: 540 };
+        end = { x: -50, y: 690 };
+        break;
+      case 3: // BR to TL
+        start = { x: 530, y: 690 };
+        cp1 = { x: 300, y: 100 };
+        mid = { x: 240, y: 320 };
+        cp2 = { x: 180, y: 540 };
+        end = { x: -50, y: -50 };
+        break;
+      case 4:
+      default: // Bottom Center Snake Up
+        start = { x: 240, y: 700 };
+        cp1 = { x: 0, y: 320 };
+        mid = { x: 240, y: 320 };
+        cp2 = { x: 480, y: 320 };
+        end = { x: 240, y: -100 };
+        break;
+    }
+
+    path.push(...createBezierPath(start, cp1, mid, 100));
+    path.push(...createBezierPath(mid, cp2, end, 100));
+    
+    const loopIndex = 100;
+    const loopPoints: Position[] = [];
+    const centerX = mid.x;
+    const centerY = mid.y;
+    const radius = 60;
+    for (let i = 0; i < 40; i++) {
+        const angle = (i / 40) * Math.PI * 2;
+        loopPoints.push({
+            x: centerX + Math.cos(angle) * radius,
+            y: centerY + Math.sin(angle) * radius
+        });
+    }
+    path.splice(loopIndex, 0, ...loopPoints);
+
+    return path;
+  };
+
+  const spawnChallengeWave = () => {
+    const types: ('BEE' | 'BUTTERFLY' | 'GALAXIAN' | 'SCORPION' | 'ZAKO')[] = ['BEE', 'BUTTERFLY', 'GALAXIAN', 'SCORPION', 'ZAKO'];
+    const patterns = [0, 1, 2, 3, 4];
+    
+    // Pick unused sprite and pattern
+    const availableTypes = types.filter(t => !challengeUsedTypesRef.current.includes(t));
+    const availablePatterns = patterns.filter(p => !challengeUsedPatternsRef.current.includes(p));
+    
+    const chosenType = availableTypes.length > 0 ? availableTypes[Math.floor(Math.random() * availableTypes.length)] : types[0];
+    const chosenPattern = availablePatterns.length > 0 ? availablePatterns[Math.floor(Math.random() * availablePatterns.length)] : patterns[0];
+    
+    challengeUsedTypesRef.current.push(chosenType);
+    challengeUsedPatternsRef.current.push(chosenPattern);
+
+    const groupPath = createComplexSnakePath(chosenPattern);
+    const enemies: Enemy[] = [];
+    const sprite = SPRITES[chosenType as keyof typeof SPRITES];
+    const palette = PALETTES[chosenType as keyof typeof PALETTES];
+
+    for (let i = 0; i < 10; i++) {
+        enemies.push({
+          id: `challenge_${challengeGroupIndexRef.current}_${i}`,
+          type: chosenType as any,
+          pos: { x: -100, y: -100 },
+          vel: { dx: 0, dy: 0 },
+          width: sprite[0].length * PIXEL_SCALE,
+          height: sprite.length * PIXEL_SCALE,
+          color: COLORS[chosenType as keyof typeof COLORS] as string,
+          palette: palette,
+          sprite: sprite,
+          spriteKey: chosenType,
+          active: true,
+          scoreValue: 100,
+          health: 1,
+          maxHealth: 1,
+          state: 'ENTERING',
+          formationPos: { x: 0, y: 0 },
+          entryPath: groupPath,
+          entryIndex: -i * 12, 
+          divepath: null,
+          diveIndex: 0,
+          diveTimer: 999999, 
+          cloakState: 'NONE',
+          cloakTimer: 0,
+          opacity: 1,
+          divePhase: 0,
+          diveAngle: 0,
+          isChallengeEnemy: true
+        });
+    }
+    enemiesRef.current = enemies;
+    challengeWaveActiveRef.current = true;
+  };
+
   const createLoopPath = (startPos: Position, formationPos: Position, clockwise: boolean): Position[] => {
       const path: Position[] = [];
       const centerX = CANVAS_WIDTH / 2;
@@ -384,7 +512,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             color = COLORS.BOSS;
             palette = PALETTES.BOSS;
             score = 1000;
-            // SLOWER BOSS HP SCALING: Every 3 levels instead of every level
             hp = 4 + Math.floor(level / 3);
         } else if (r === 0) {
             if (c % 2 === 0) {
@@ -464,7 +591,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         let path: Position[] = [];
 
         if (patternType === 6) {
-            // New Swirl pattern
             p0 = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT + 50 };
             path = createSwirlPath(p0, formationPos);
         } else if (patternType === 5) {
@@ -588,6 +714,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     nextLifeThresholdIndexRef.current = 0;
     onScoreUpdate(0);
     onLivesUpdate(3);
+    onLevelUpdate(1);
     activePowerUpsRef.current = [];
     onActivePowerUpsChange([]);
     bulletsRef.current = [];
@@ -602,7 +729,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     stopUfoSound();
     mysteryShipRef.current = null;
     mysteryShipCooldownRef.current = 1000;
-  }, [onScoreUpdate, onLivesUpdate, onActivePowerUpsChange]);
+    challengeGroupIndexRef.current = 0;
+    challengeHitCountRef.current = 0;
+    challengeWaveActiveRef.current = false;
+    challengeUsedTypesRef.current = [];
+    challengeUsedPatternsRef.current = [];
+  }, [onScoreUpdate, onLivesUpdate, onLevelUpdate, onActivePowerUpsChange]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.target === canvasRef.current) e.preventDefault();
@@ -623,7 +755,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         return;
     }
 
-    if (gameState === GameState.PLAYING) {
+    if (gameState === GameState.PLAYING || gameState === GameState.CHALLENGE_PLAYING) {
         if (y > CANVAS_HEIGHT * 0.75) {
             touchXRef.current = x;
         } else {
@@ -639,7 +771,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
   const handleTouchMove = (e: React.TouchEvent) => {
       if (e.target === canvasRef.current) e.preventDefault();
-      if (gameState !== GameState.PLAYING) return;
+      if (gameState !== GameState.PLAYING && gameState !== GameState.CHALLENGE_PLAYING) return;
       
       const touch = e.touches[0];
       const rect = canvasRef.current?.getBoundingClientRect();
@@ -667,14 +799,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           }
           return;
       }
-      if (gameState === GameState.PLAYING) {
+      if (gameState === GameState.PLAYING || gameState === GameState.CHALLENGE_PLAYING) {
           setGameState(GameState.PAUSED);
           stopUfoSound();
       } 
   };
 
   useEffect(() => {
-    // Reset jump-tracker whenever the effect restarts
     lastTimeRef.current = 0;
     
     let animationFrameId: number;
@@ -702,7 +833,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         onActivePowerUpsChange([]);
         powerUpsRef.current = [];
 
-        // Delay the respawn sequence by 1 second to allow the explosion to finish
         setTimeout(() => {
             livesRef.current--;
             onLivesUpdate(livesRef.current);
@@ -718,7 +848,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     };
 
     const loop = (time: number) => {
-      // First frame logic to prevent timestamp jumps
       if (lastTimeRef.current === 0) {
         lastTimeRef.current = time;
       }
@@ -729,6 +858,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
       if (gameState === GameState.INTRO) {
           if (introStarted) {
+            if (input.fire || input.start) {
+              setGameState(GameState.START);
+            }
             introTimeElapsedRef.current += dt;
             const lineDuration = 3000;
             const totalIntroTime = INTRO_LINES.length * lineDuration;
@@ -747,7 +879,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           }
       }
       
-      if (gameState === GameState.PLAYING || gameState === GameState.VICTORY) {
+      if (gameState === GameState.PLAYING || gameState === GameState.VICTORY || gameState === GameState.CHALLENGE_PLAYING || gameState === GameState.CHALLENGE_RESULTS || gameState === GameState.CHALLENGE_INTRO) {
           const timeScale = dt / 16.67; 
           timeRef.current += 0.05 * timeScale;
 
@@ -770,7 +902,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
           starsRef.current.forEach(star => {
               let speedMult = 1;
-              if (gameState === GameState.VICTORY) speedMult = 15; // Faster for warp
+              if (gameState === GameState.VICTORY) speedMult = 15; 
 
               star.y += star.speed * speedMult * timeScale; 
               if (star.y > CANVAS_HEIGHT) {
@@ -779,7 +911,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               }
           });
 
-          if (gameState === GameState.PLAYING) {
+          if (gameState === GameState.PLAYING || gameState === GameState.CHALLENGE_PLAYING) {
               if (Math.random() < 0.002 * timeScale) { 
                   const size = 50 + Math.random() * 100; 
                   supernovasRef.current.push({
@@ -800,7 +932,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           });
           powerUpsRef.current = powerUpsRef.current.filter(p => p.active);
 
-          const powerUpsCountBefore = activePowerUpsRef.current.length;
           activePowerUpsRef.current.forEach(p => {
               p.timeLeft -= 1 * timeScale;
               if (p.timeLeft <= 0) {
@@ -810,7 +941,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           
           activePowerUpsRef.current = activePowerUpsRef.current.filter(p => p.timeLeft > 0);
 
-          // Only sync power-ups state when list changes to avoid frame churn
           if (activePowerUpsRef.current.length !== lastActivePowerUpsCountRef.current || wasActiveRef.current) {
               onActivePowerUpsChange([...activePowerUpsRef.current]);
               lastActivePowerUpsCountRef.current = activePowerUpsRef.current.length;
@@ -843,12 +973,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   }
               } else {
                   const ship = mysteryShipRef.current;
-                  
-                  // Extreme unpredictable movement logic
                   if (ship.behaviorTimer !== undefined && ship.behaviorTimer > 0) {
                       ship.behaviorTimer -= 1 * timeScale;
                   } else {
-                      // Constant high-frequency behavior shifts
                       const r = Math.random();
                       if (r < 0.05) {
                           ship.behaviorState = 'PAUSED';
@@ -866,7 +993,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   if (ship.behaviorState === 'PAUSED') speedMult = 0;
                   else if (ship.behaviorState === 'FAST') speedMult = 4.2; 
                   
-                  // Jitter and vertical drift
                   const jitter = (Math.random() - 0.5) * 1.5;
                   const verticalOsc = Math.sin(timeRef.current * 1.2) * 2.0;
                   ship.pos.x += (ship.vel.dx * speedMult + jitter) * timeScale;
@@ -887,14 +1013,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               setGameState(GameState.GAME_OVER);
           }
 
-          if (gameState === GameState.VICTORY) {
-            // Remove UFO if warp is shown
+          if (gameState === GameState.VICTORY || gameState === GameState.CHALLENGE_INTRO) {
             if (mysteryShipRef.current) {
                 mysteryShipRef.current = null;
                 stopUfoSound();
             }
-
-            // Smoothly move ship to center
             if (playerRef.current) {
               const targetX = CANVAS_WIDTH / 2 - playerRef.current.width / 2;
               const dx = targetX - playerRef.current.pos.x;
@@ -905,32 +1028,38 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           }
 
           if (gameState === GameState.PLAYING) {
-              if (enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0) {
-                  // Clear bullets immediately when enemies are gone
-                  if (waveTimerRef.current === 0) {
-                      bulletsRef.current = [];
-                  }
-                  
+              if (enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0 && !mysteryShipRef.current) {
+                  if (waveTimerRef.current === 0) bulletsRef.current = [];
                   waveTimerRef.current += dt;
                   if (waveTimerRef.current > 3000) {
                       waveTimerRef.current = 0;
-                      setGameState(GameState.VICTORY);
-                      bulletsRef.current = []; // Ensure cleared again
-                      activePowerUpsRef.current = []; 
-                      powerUpsRef.current = []; 
-                      onActivePowerUpsChange([]); 
-                      stopUfoSound(); 
-                      playSound('warp');
-                      setTimeout(() => {
-                          if (livesRef.current > 0) {
-                            levelRef.current++; 
-                            setGameState(GameState.PLAYING);
-                            prepareWave(levelRef.current);
-                          }
-                      }, 3000);
+                      // Trigger Challenge only every 3 levels
+                      if (levelRef.current % 3 === 0) {
+                        setGameState(GameState.CHALLENGE_INTRO);
+                        challengeWaveTimerRef.current = 0;
+                        countdownValueRef.current = 3;
+                        challengeUsedTypesRef.current = [];
+                        challengeUsedPatternsRef.current = [];
+                      } else {
+                        setGameState(GameState.VICTORY);
+                        bulletsRef.current = [];
+                        activePowerUpsRef.current = []; 
+                        powerUpsRef.current = []; 
+                        onActivePowerUpsChange([]); 
+                        stopUfoSound(); 
+                        playSound('warp');
+                        setTimeout(() => {
+                            if (livesRef.current > 0) {
+                              levelRef.current++;
+                              onLevelUpdate(levelRef.current);
+                              setGameState(GameState.PLAYING);
+                              prepareWave(levelRef.current);
+                            }
+                        }, 3000);
+                      }
                   }
               }
-
+              
               if (respawnStateRef.current === 'RETURNING') {
                   let allInPosition = true;
                   enemiesRef.current.forEach(e => {
@@ -948,20 +1077,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                           e.pos.y = e.formationPos.y;
                       }
                   });
-
                   if (allInPosition) {
                       respawnStateRef.current = 'WAITING';
                       respawnTimerRef.current = 0;
                       countdownValueRef.current = 3;
-                      spawnPlayer(true); // Ensure player at center
+                      spawnPlayer(true);
                   }
               } else if (respawnStateRef.current === 'WAITING') {
                   respawnTimerRef.current += dt;
                   const newVal = 3 - Math.floor(respawnTimerRef.current / 800);
-                  if (newVal !== countdownValueRef.current) {
-                     countdownValueRef.current = newVal;
-                  }
-                  
+                  if (newVal !== countdownValueRef.current) countdownValueRef.current = newVal;
                   if (respawnTimerRef.current > 2400) { 
                       if (playerRef.current) playerRef.current.active = true;
                       respawnStateRef.current = 'NONE';
@@ -969,54 +1094,38 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   }
               }
 
-              const isVictorySequence = enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0;
+              const isVictorySequence = enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0 && !mysteryShipRef.current;
 
               if (playerRef.current && playerRef.current.active && respawnStateRef.current === 'NONE' && !isVictorySequence) {
                   if (input.left) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
                   if (input.right) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
                   if (touchXRef.current !== null) {
                       const pCenter = playerRef.current.pos.x + playerRef.current.width / 2;
-                      const deadzone = 5;
-                      if (touchXRef.current < pCenter - deadzone) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
-                      if (touchXRef.current > pCenter + deadzone) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
+                      if (touchXRef.current < pCenter - 5) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
+                      if (touchXRef.current > pCenter + 5) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
                   }
                   playerRef.current.pos.x = Math.max(10, Math.min(CANVAS_WIDTH - playerRef.current.width - 10, playerRef.current.pos.x));
 
                   if (fireCooldownRef.current > 0) fireCooldownRef.current -= 1 * timeScale;
-                  // check isMobileRef.current to determine auto-firing behavior
                   const shouldFire = input.fire || (isMobileRef.current && fireCooldownRef.current <= 0);
                   const isRapidFire = activePowerUpsRef.current.some(p => p.type === 'RAPID_FIRE');
                   const playerBullets = bulletsRef.current.filter(b => b.owner === 'PLAYER');
-                  const maxBullets = isRapidFire ? 4 : 2;
-                  const cooldownTime = isRapidFire ? FIRE_COOLDOWN_RAPID : FIRE_COOLDOWN_DEFAULT;
-
-                  if (shouldFire && fireCooldownRef.current <= 0 && playerBullets.length < maxBullets) {
+                  if (shouldFire && fireCooldownRef.current <= 0 && playerBullets.length < (isRapidFire ? 4 : 2)) {
                       bulletsRef.current.push({
                           id: `p_bullet_${Date.now()}`,
                           pos: { x: playerRef.current.pos.x + playerRef.current.width / 2 - 2, y: playerRef.current.pos.y },
                           vel: { dx: 0, dy: -BULLET_SPEED },
-                          width: 4,
-                          height: 12,
-                          color: COLORS.BULLET_PLAYER,
-                          sprite: [],
-                          active: true,
-                          owner: 'PLAYER'
+                          width: 4, height: 12, color: COLORS.BULLET_PLAYER, sprite: [], active: true, owner: 'PLAYER'
                       });
                       playSound('shoot');
-                      fireCooldownRef.current = cooldownTime; 
+                      fireCooldownRef.current = isRapidFire ? FIRE_COOLDOWN_RAPID : FIRE_COOLDOWN_DEFAULT; 
                   }
-                  
                   const pRect = { x: playerRef.current.pos.x, y: playerRef.current.pos.y, w: playerRef.current.width, h: playerRef.current.height };
                   powerUpsRef.current.forEach(p => {
-                      if (p.active && 
-                          p.pos.x < pRect.x + pRect.w && p.pos.x + p.width > pRect.x &&
-                          p.pos.y < pRect.y + pRect.h && p.pos.y + p.height > pRect.y) {
+                      if (p.active && p.pos.x < pRect.x + pRect.w && p.pos.x + p.width > pRect.x && p.pos.y < pRect.y + pRect.h && p.pos.y + p.height > pRect.y) {
                           p.active = false;
                           playSound('powerup');
-                          const newActive = [...activePowerUpsRef.current, {
-                              type: p.type,
-                              timeLeft: POWERUP_DURATION
-                          }];
+                          const newActive = [...activePowerUpsRef.current, { type: p.type, timeLeft: POWERUP_DURATION }];
                           activePowerUpsRef.current = newActive;
                           onActivePowerUpsChange(newActive);
                       }
@@ -1033,35 +1142,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               }
 
               const isFormationComplete = spawnQueueRef.current.length === 0 && !enemiesRef.current.some(e => e.state === 'ENTERING');
-              // SLOWER GROWTH OF CONCURRENT DIVERS: Every 4 levels instead of every 2
               const maxConcurrentDivers = 2 + Math.floor((levelRef.current - 1) / 4);
               let currentDivers = enemiesRef.current.filter(e => e.state === 'DIVING').length;
-
-              if (diveCooldownRef.current > 0) {
-                  diveCooldownRef.current -= 1 * timeScale;
-              }
+              if (diveCooldownRef.current > 0) diveCooldownRef.current -= 1 * timeScale;
 
               if (respawnStateRef.current === 'NONE') { 
                 enemiesRef.current.forEach(enemy => {
                   if (enemy.cloakState === 'FADING_OUT') {
                     enemy.opacity -= 0.067 * timeScale; 
-                    if (enemy.opacity <= 0) {
-                        enemy.opacity = 0;
-                        enemy.cloakState = 'INVISIBLE';
-                        enemy.cloakTimer = 15;
-                    }
+                    if (enemy.opacity <= 0) { enemy.opacity = 0; enemy.cloakState = 'INVISIBLE'; enemy.cloakTimer = 15; }
                   } else if (enemy.cloakState === 'INVISIBLE') {
                     enemy.cloakTimer -= 1 * timeScale;
-                    if (enemy.cloakTimer <= 0) {
-                        enemy.cloakState = 'FADING_IN';
-                        playSound('cloak'); 
-                    }
+                    if (enemy.cloakTimer <= 0) { enemy.cloakState = 'FADING_IN'; playSound('cloak'); }
                   } else if (enemy.cloakState === 'FADING_IN') {
                       enemy.opacity += 0.067 * timeScale;
-                      if (enemy.opacity >= 1) {
-                          enemy.opacity = 1;
-                          enemy.cloakState = 'NONE';
-                      }
+                      if (enemy.opacity >= 1) { enemy.opacity = 1; enemy.cloakState = 'NONE'; }
                   }
 
                   if (enemy.state === 'ENTERING') {
@@ -1069,440 +1164,327 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                           enemy.entryIndex += 1.2 * timeScale; 
                           const idx = Math.min(Math.floor(enemy.entryIndex), enemy.entryPath.length - 1);
                           const p = enemy.entryPath[idx];
-                          if (p) {
-                            enemy.pos.x = p.x - enemy.width / 2;
-                            enemy.pos.y = p.y - enemy.height / 2;
-                          }
-                      } else {
-                          enemy.state = 'FORMATION';
-                      }
+                          if (p) { enemy.pos.x = p.x - enemy.width / 2; enemy.pos.y = p.y - enemy.height / 2; }
+                      } else enemy.state = 'FORMATION';
                   } else if (enemy.state === 'FORMATION') {
                       const time = Date.now() / 500;
                       enemy.pos.x = enemy.formationPos.x - enemy.width / 2 + Math.sin(time) * 5;
                       enemy.pos.y = enemy.formationPos.y - enemy.height / 2;
-
                       if (isFormationComplete && respawnStateRef.current === 'NONE') {
                         enemy.diveTimer -= 10 * timeScale; 
                         if (enemy.diveTimer <= 0) {
                             if (currentDivers < maxConcurrentDivers && diveCooldownRef.current <= 0) {
-                                enemy.state = 'DIVING';
-                                currentDivers++;
-                                enemy.diveTimer = 500 + Math.random() * 500;
+                                enemy.state = 'DIVING'; currentDivers++; enemy.diveTimer = 500 + Math.random() * 500;
                                 playSound('dive');
-                                
-                                // Randomly assign special dive patterns
                                 const r = Math.random();
-                                if (r < 0.1) enemy.diveType = 'DOUBLE_CIRCLE';
-                                else if (r < 0.4) enemy.diveType = 'CIRCLE_BACK';
-                                else if (r < 0.6) enemy.diveType = 'SINE_DIVE';
-                                else enemy.diveType = 'DIRECT';
-                                
-                                enemy.diveCycles = 0;
-                                enemy.diveAngle = 0;
-                                enemy.divePhase = 0;
-
-                                if (levelRef.current >= 3 && enemy.cloakState === 'NONE') {
-                                    const cloakChance = Math.min(0.5, 0.1 + (levelRef.current - 3) * 0.05);
-                                    if (Math.random() < cloakChance) {
-                                        enemy.cloakState = 'FADING_OUT';
-                                        playSound('cloak');
-                                    }
-                                }
-                                // SLOWER SPEED SCALING: 0.05 per level instead of 0.15
+                                if (r < 0.1) enemy.diveType = 'DOUBLE_CIRCLE'; else if (r < 0.4) enemy.diveType = 'CIRCLE_BACK'; else if (r < 0.6) enemy.diveType = 'SINE_DIVE'; else enemy.diveType = 'DIRECT';
+                                enemy.diveCycles = 0; enemy.diveAngle = 0; enemy.divePhase = 0;
+                                if (levelRef.current >= 3 && enemy.cloakState === 'NONE' && Math.random() < Math.min(0.5, 0.1 + (levelRef.current - 3) * 0.05)) { enemy.cloakState = 'FADING_OUT'; playSound('cloak'); }
                                 const baseSpeed = PLAYER_SPEED * (1.2 + Math.min(levelRef.current * 0.05, 1.3));
                                 if (playerRef.current) {
                                     const angle = Math.atan2(playerRef.current.pos.y - enemy.pos.y, playerRef.current.pos.x - enemy.pos.x);
-                                    enemy.vel.dx = Math.cos(angle) * baseSpeed;
-                                    enemy.vel.dy = Math.sin(angle) * baseSpeed;
-                                } else {
-                                    enemy.vel.dy = baseSpeed;
-                                }
-                            } else {
-                                enemy.diveTimer = 500 + Math.random() * 1500;
-                            }
+                                    enemy.vel.dx = Math.cos(angle) * baseSpeed; enemy.vel.dy = Math.sin(angle) * baseSpeed;
+                                } else enemy.vel.dy = baseSpeed;
+                            } else enemy.diveTimer = 500 + Math.random() * 1500;
                         }
                       }
                   } else if (enemy.state === 'DIVING') {
                       if (enemy.diveType === 'CIRCLE_BACK' || enemy.diveType === 'DOUBLE_CIRCLE') {
-                          if (enemy.divePhase === 0) { // Dropping straight down
-                              enemy.pos.y += enemy.vel.dy * 0.9 * timeScale;
-                              enemy.pos.x += enemy.vel.dx * 0.1 * timeScale; 
-                              if (enemy.pos.y > CANVAS_HEIGHT * 0.65) { // Start circle much lower (65% height)
-                                  enemy.divePhase = 1;
-                                  enemy.diveAngle = 0;
-                                  // Circle direction TOWARDS center
-                                  enemy.diveDirection = enemy.pos.x < CANVAS_WIDTH / 2 ? 1 : -1;
-                                  enemy.diveStartX = enemy.pos.x;
-                                  enemy.diveStartY = enemy.pos.y;
-                              }
-                          } else if (enemy.divePhase === 1) { // In the loop
-                              enemy.diveAngle! += 0.13 * timeScale;
-                              const radius = 70;
-                              // Center of circle shifted towards screen center
-                              const cx = enemy.diveStartX! + (radius * enemy.diveDirection!);
-                              const cy = enemy.diveStartY!;
-                              // Parametric circle
-                              enemy.pos.x = cx - Math.cos(enemy.diveAngle!) * radius * enemy.diveDirection!;
-                              enemy.pos.y = cy + Math.sin(enemy.diveAngle!) * radius;
-
-                              if (enemy.diveAngle! >= Math.PI * 2) {
-                                  enemy.diveCycles!++;
-                                  const maxCycles = enemy.diveType === 'DOUBLE_CIRCLE' ? 2 : 1;
-                                  if (enemy.diveCycles! >= maxCycles) {
-                                      enemy.divePhase = 2; // Finished circles
-                                  } else {
-                                      enemy.diveAngle = 0; // Restart loop
-                                  }
-                              }
-                          } else { // Resume drop
-                              enemy.pos.x += enemy.vel.dx * 1.3 * timeScale;
-                              enemy.pos.y += enemy.vel.dy * 1.3 * timeScale;
-                          }
-                      } else if (enemy.diveType === 'SINE_DIVE') {
-                          // Wavy sine dive with dynamic random width
-                          enemy.pos.y += enemy.vel.dy * 0.9 * timeScale;
-                          // Increased divisor for slower, smoother wavelength (period)
-                          const currentSineValue = Math.sin(enemy.pos.y / 100);
-                          
-                          // Initialize or recalculate width at the start of each oscillation (zero crossing)
-                          if (enemy.sineWidth === undefined) {
-                              enemy.sineWidth = 4 + Math.random() * 6;
-                          } else if ((currentSineValue >= 0 && (enemy.lastSineValue || 0) < 0) || 
-                                     (currentSineValue < 0 && (enemy.lastSineValue || 0) >= 0)) {
-                              // New random width for the next cycle, limited to half of previous attempt
-                              enemy.sineWidth = 4 + Math.random() * 6; 
-                          }
-                          
-                          enemy.pos.x += currentSineValue * (enemy.sineWidth || 1) * timeScale;
-                          enemy.lastSineValue = currentSineValue;
-                      } else {
-                          // Standard linear dive
-                          enemy.pos.x += enemy.vel.dx * timeScale;
-                          enemy.pos.y += enemy.vel.dy * timeScale;
-                      }
-
-                      const baseShootChance = levelRef.current === 1 ? 0.003 : 0.004;
-                      // SLOWER FIRE RATE SCALING: 0.0002 per level instead of 0.0005, and lower cap (0.012)
-                      const shootChance = Math.min(0.012, baseShootChance + (levelRef.current * 0.0002));
-                      if (Math.random() < shootChance * timeScale) spawnEnemyBullet(enemy);
-
-                      if (enemy.pos.y > CANVAS_HEIGHT + 50) {
-                          enemy.entryIndex = 0;
-                          enemy.pos.y = -50;
-                          enemy.state = 'ENTERING'; 
-                          enemy.entryPath = createBezierPath(enemy.pos, {x: enemy.formationPos.x, y: enemy.formationPos.y - 100}, enemy.formationPos, 30);
-                          enemy.cloakState = 'NONE';
-                          enemy.opacity = 1;
-                      }
+                          if (enemy.divePhase === 0) {
+                              enemy.pos.y += enemy.vel.dy * 0.9 * timeScale; enemy.pos.x += enemy.vel.dx * 0.1 * timeScale; 
+                              if (enemy.pos.y > CANVAS_HEIGHT * 0.65) { enemy.divePhase = 1; enemy.diveAngle = 0; enemy.diveDirection = enemy.pos.x < CANVAS_WIDTH / 2 ? 1 : -1; enemy.diveStartX = enemy.pos.x; enemy.diveStartY = enemy.pos.y; }
+                          } else if (enemy.divePhase === 1) {
+                              enemy.diveAngle! += 0.13 * timeScale; const radius = 70; const cx = enemy.diveStartX! + (radius * enemy.diveDirection!); const cy = enemy.diveStartY!;
+                              enemy.pos.x = cx - Math.cos(enemy.diveAngle!) * radius * enemy.diveDirection!; enemy.pos.y = cy + Math.sin(enemy.diveAngle!) * radius;
+                              if (enemy.diveAngle! >= Math.PI * 2) { enemy.diveCycles!++; if (enemy.diveCycles! >= (enemy.diveType === 'DOUBLE_CIRCLE' ? 2 : 1)) enemy.divePhase = 2; else enemy.diveAngle = 0; }
+                          } else { enemy.pos.x += enemy.vel.dx * 1.3 * timeScale; enemy.pos.y += enemy.vel.dy * 1.3 * timeScale; }
+                      } else if (enemy.diveType === 'SINE_DIVE') { enemy.pos.y += enemy.vel.dy * 0.9 * timeScale; enemy.pos.x += Math.sin(enemy.pos.y / 45) * 5 * timeScale;
+                      } else { enemy.pos.x += enemy.vel.dx * timeScale; enemy.pos.y += enemy.vel.dy * timeScale; }
+                      if (Math.random() < (Math.min(0.012, (levelRef.current === 1 ? 0.003 : 0.004) + (levelRef.current * 0.0002))) * timeScale) spawnEnemyBullet(enemy);
+                      if (enemy.pos.y > CANVAS_HEIGHT + 50) { enemy.entryIndex = 0; enemy.pos.y = -50; enemy.state = 'ENTERING'; enemy.entryPath = createBezierPath(enemy.pos, {x: enemy.formationPos.x, y: enemy.formationPos.y - 100}, enemy.formationPos, 30); enemy.cloakState = 'NONE'; enemy.opacity = 1; }
                   }
                 });
               }
-
-              bulletsRef.current.forEach(b => {
-                  b.pos.x += b.vel.dx * timeScale;
-                  b.pos.y += b.vel.dy * timeScale;
-                  if (b.pos.y < -20 || b.pos.y > CANVAS_HEIGHT + 20) b.active = false;
-              });
+              bulletsRef.current.forEach(b => { b.pos.x += b.vel.dx * timeScale; b.pos.y += b.vel.dy * timeScale; if (b.pos.y < -20 || b.pos.y > CANVAS_HEIGHT + 20) b.active = false; });
               bulletsRef.current = bulletsRef.current.filter(b => b.active);
-
               bulletsRef.current.filter(b => b.owner === 'PLAYER').forEach(b => {
                   enemiesRef.current.forEach(e => {
-                      if (b.active && e.active && e.cloakState !== 'INVISIBLE' &&
-                          b.pos.x < e.pos.x + e.width && 
-                          b.pos.x + b.width > e.pos.x &&
-                          b.pos.y < e.pos.y + e.height && 
-                          b.pos.y + b.height > e.pos.y) {
-                          b.active = false;
-                          e.health--;
+                      if (b.active && e.active && e.cloakState !== 'INVISIBLE' && b.pos.x < e.pos.x + e.width && b.pos.x + b.width > e.pos.x && b.pos.y < e.pos.y + e.height && b.pos.y + b.height > e.pos.y) {
+                          b.active = false; e.health--;
                           if (e.health <= 0) {
-                              e.active = false;
-                              createExplosion(e.pos.x + e.width/2, e.pos.y + e.height/2, e.color, 1.5);
-                              let points = 0;
-                              if (e.state === 'ENTERING') points = 50;
-                              else if (e.state === 'FORMATION') points = 100;
-                              else if (e.state === 'DIVING') points = 250;
-                              scoreRef.current += points;
-                              
-                              // Check for extra life thresholds
-                              while (nextLifeThresholdIndexRef.current < LIFE_THRESHOLDS.length && 
-                                     scoreRef.current >= LIFE_THRESHOLDS[nextLifeThresholdIndexRef.current]) {
-                                  livesRef.current++;
-                                  onLivesUpdate(livesRef.current);
-                                  playSound('extend');
-                                  nextLifeThresholdIndexRef.current++;
-                              }
-                              
+                              e.active = false; createExplosion(e.pos.x + e.width/2, e.pos.y + e.height/2, e.color, 1.5);
+                              scoreRef.current += (e.state === 'ENTERING' ? 50 : (e.state === 'FORMATION' ? 100 : 250));
+                              while (nextLifeThresholdIndexRef.current < LIFE_THRESHOLDS.length && scoreRef.current >= LIFE_THRESHOLDS[nextLifeThresholdIndexRef.current]) { livesRef.current++; onLivesUpdate(livesRef.current); playSound('extend'); nextLifeThresholdIndexRef.current++; }
                               onScoreUpdate(scoreRef.current);
-                              bulletsRef.current = bulletsRef.current.filter(bull => bull.ownerId !== e.id);
                               spawnPowerUp(e.pos.x + e.width/2 - 12, e.pos.y + e.height/2);
-                              if (e.state === 'DIVING') {
-                                // SLOWER PACING: Reduction is less aggressive (3 instead of 4)
-                                diveCooldownRef.current = Math.max(20, 100 - (levelRef.current * 3));
-                              }
-                          } else {
-                              playSound('shield_hit');
-                          }
+                              if (e.state === 'DIVING') diveCooldownRef.current = Math.max(20, 100 - (levelRef.current * 3));
+                          } else playSound('shield_hit');
                       }
                   });
-
                   if (b.active && mysteryShipRef.current && mysteryShipRef.current.active) {
                       const ufo = mysteryShipRef.current;
-                      if (b.pos.x < ufo.pos.x + ufo.width && 
-                          b.pos.x + b.width > ufo.pos.x && 
-                          b.pos.y < ufo.pos.y + ufo.height && 
-                          b.pos.y + b.height > ufo.pos.y) {
-                          b.active = false;
-                          ufo.active = false;
-                          mysteryShipRef.current = null;
-                          stopUfoSound();
-                          createExplosion(ufo.pos.x + ufo.width/2, ufo.pos.y + ufo.height/2, '#ff0000', 3);
+                      if (b.pos.x < ufo.pos.x + ufo.width && b.pos.x + b.width > ufo.pos.x && b.pos.y < ufo.pos.y + ufo.height && b.pos.y + b.height > ufo.pos.y) {
+                          b.active = false; ufo.active = false; mysteryShipRef.current = null; stopUfoSound(); createExplosion(ufo.pos.x + ufo.width/2, ufo.pos.y + ufo.height/2, '#ff0000', 3);
                           scoreRef.current += 1000;
-                          
-                          // Check for extra life thresholds
-                          while (nextLifeThresholdIndexRef.current < LIFE_THRESHOLDS.length && 
-                                 scoreRef.current >= LIFE_THRESHOLDS[nextLifeThresholdIndexRef.current]) {
-                              livesRef.current++;
-                              onLivesUpdate(livesRef.current);
-                              playSound('extend');
-                              nextLifeThresholdIndexRef.current++;
-                          }
-                          
-                          onScoreUpdate(scoreRef.current);
-                          playSound('bonus');
-                          spawnPowerUp(ufo.pos.x + ufo.width/2 - 12, ufo.pos.y + ufo.height/2);
+                          while (nextLifeThresholdIndexRef.current < LIFE_THRESHOLDS.length && scoreRef.current >= LIFE_THRESHOLDS[nextLifeThresholdIndexRef.current]) { livesRef.current++; onLivesUpdate(livesRef.current); playSound('extend'); nextLifeThresholdIndexRef.current++; }
+                          onScoreUpdate(scoreRef.current); playSound('bonus'); spawnPowerUp(ufo.pos.x + ufo.width/2 - 12, ufo.pos.y + ufo.height/2);
                       }
                   }
               });
               enemiesRef.current = enemiesRef.current.filter(e => e.active);
-
-              const isRoundStarting = spawnQueueRef.current.length > 0 || enemiesRef.current.some(e => e.state === 'ENTERING');
-              const isWaiting = respawnStateRef.current !== 'NONE';
-
-              if (playerRef.current && playerRef.current.active && !isRoundStarting && !isWaiting) {
+              if (playerRef.current && playerRef.current.active && !isVictorySequence && respawnStateRef.current === 'NONE') {
                   const pRect = { x: playerRef.current.pos.x + 4, y: playerRef.current.pos.y + 4, w: playerRef.current.width - 8, h: playerRef.current.height - 8 };
-                  bulletsRef.current.filter(b => b.owner === 'ENEMY').forEach(b => {
-                      if (b.active && 
-                          b.pos.x < pRect.x + pRect.w && b.pos.x + b.width > pRect.x &&
-                          b.pos.y < pRect.y + pRect.h && b.pos.y + b.height > pRect.y) {
-                          b.active = false;
-                          handlePlayerHit();
-                      }
-                  });
+                  bulletsRef.current.filter(b => b.owner === 'ENEMY').forEach(b => { if (b.active && b.pos.x < pRect.x + pRect.w && b.pos.x + b.width > pRect.x && b.pos.y < pRect.y + pRect.h && b.pos.y + b.height > pRect.y) { b.active = false; handlePlayerHit(); } });
+                  enemiesRef.current.forEach(e => { if (e.active && e.cloakState !== 'INVISIBLE' && e.pos.x < pRect.x + pRect.w && e.pos.x + e.width > pRect.x && e.pos.y < pRect.y + pRect.h && e.pos.y + e.height > pRect.y) { e.active = false; createExplosion(e.pos.x + e.width/2, e.pos.y + e.height/2, e.color); handlePlayerHit(); } });
+              }
+              particlesRef.current.forEach(p => { p.x += p.dx * timeScale; p.y += p.dy * timeScale; p.life -= 0.03 * timeScale; });
+              particlesRef.current = particlesRef.current.filter(p => p.life > 0);
 
-                  enemiesRef.current.forEach(e => {
-                      if (e.active && e.cloakState !== 'INVISIBLE' &&
-                          e.pos.x < pRect.x + pRect.w && e.pos.x + e.width > pRect.x &&
-                          e.pos.y < pRect.y + pRect.h && e.pos.y + e.height > pRect.y) {
-                          e.active = false;
-                          createExplosion(e.pos.x + e.width/2, e.pos.y + e.height/2, e.color);
-                          handlePlayerHit();
-                      }
-                  });
+          } else if (gameState === GameState.CHALLENGE_INTRO) {
+              challengeWaveTimerRef.current += dt;
+              const newVal = 3 - Math.floor(challengeWaveTimerRef.current / 800);
+              if (newVal !== countdownValueRef.current) countdownValueRef.current = newVal;
+              if (challengeWaveTimerRef.current > 2400) {
+                  setGameState(GameState.CHALLENGE_PLAYING);
+                  challengeGroupIndexRef.current = 0;
+                  challengeHitCountRef.current = 0;
+                  challengeWaveActiveRef.current = false;
+                  challengeWaveTimerRef.current = 0;
               }
 
-              particlesRef.current.forEach(p => {
-                  p.x += p.dx * timeScale;
-                  p.y += p.dy * timeScale;
-                  p.life -= 0.03 * timeScale; 
+          } else if (gameState === GameState.CHALLENGE_PLAYING) {
+              if (!challengeWaveActiveRef.current && challengeGroupIndexRef.current < 5) {
+                challengeWaveTimerRef.current += dt;
+                if (challengeWaveTimerRef.current > 1000) {
+                    spawnChallengeWave();
+                    challengeWaveTimerRef.current = 0;
+                }
+              }
+
+              // Calculated increment multiplier to match level speed difficulty
+              const speedFactor = (1.2 + Math.min(levelRef.current * 0.05, 1.3)) / 1.25;
+              const challengeIncrement = 0.85 * speedFactor;
+
+              enemiesRef.current.forEach(enemy => {
+                  if (enemy.entryIndex < enemy.entryPath.length - 1) {
+                      enemy.entryIndex += challengeIncrement * timeScale; 
+                      const idx = Math.floor(enemy.entryIndex);
+                      if (idx >= 0) {
+                        const p = enemy.entryPath[idx];
+                        enemy.pos.x = p.x - enemy.width / 2;
+                        enemy.pos.y = p.y - enemy.height / 2;
+                      }
+                  } else enemy.active = false;
               });
+
+              if (playerRef.current && playerRef.current.active) {
+                if (input.left) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
+                if (input.right) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
+                playerRef.current.pos.x = Math.max(10, Math.min(CANVAS_WIDTH - playerRef.current.width - 10, playerRef.current.pos.x));
+                if (fireCooldownRef.current > 0) fireCooldownRef.current -= 1 * timeScale;
+                const shouldFire = input.fire || (isMobileRef.current && fireCooldownRef.current <= 0);
+                const isRapidFire = activePowerUpsRef.current.some(p => p.type === 'RAPID_FIRE');
+                if (shouldFire && fireCooldownRef.current <= 0 && bulletsRef.current.filter(b => b.owner === 'PLAYER').length < (isRapidFire ? 4 : 2)) {
+                    bulletsRef.current.push({
+                        id: `p_bullet_${Date.now()}`,
+                        pos: { x: playerRef.current.pos.x + playerRef.current.width / 2 - 2, y: playerRef.current.pos.y },
+                        vel: { dx: 0, dy: -BULLET_SPEED },
+                        width: 4, height: 12, color: COLORS.BULLET_PLAYER, sprite: [], active: true, owner: 'PLAYER'
+                    });
+                    playSound('shoot');
+                    fireCooldownRef.current = isRapidFire ? FIRE_COOLDOWN_RAPID : FIRE_COOLDOWN_DEFAULT; 
+                }
+              }
+
+              bulletsRef.current.forEach(b => { b.pos.x += b.vel.dx * timeScale; b.pos.y += b.vel.dy * timeScale; if (b.pos.y < -20 || b.pos.y > CANVAS_HEIGHT + 20) b.active = false; });
+              bulletsRef.current = bulletsRef.current.filter(b => b.active);
+              
+              bulletsRef.current.filter(b => b.owner === 'PLAYER').forEach(b => {
+                enemiesRef.current.forEach(e => {
+                    if (b.active && e.active && b.pos.x < e.pos.x + e.width && b.pos.x + b.width > e.pos.x && b.pos.y < e.pos.y + e.height && b.pos.y + b.height > e.pos.y) {
+                        b.active = false; e.active = false;
+                        createExplosion(e.pos.x + e.width/2, e.pos.y + e.height/2, e.color, 1.5);
+                        challengeHitCountRef.current++;
+                        scoreRef.current += 100;
+                        onScoreUpdate(scoreRef.current);
+                    }
+                });
+              });
+
+              const allGone = enemiesRef.current.length === 0 && challengeWaveActiveRef.current;
+              if (allGone) {
+                challengeWaveActiveRef.current = false;
+                challengeGroupIndexRef.current++;
+                challengeWaveTimerRef.current = 0; 
+              }
+              
+              if (challengeGroupIndexRef.current >= 5 && enemiesRef.current.length === 0) {
+                  // Wait for all particles to finish
+                  if (particlesRef.current.length === 0) {
+                      setGameState(GameState.CHALLENGE_RESULTS);
+                      challengeWaveTimerRef.current = 0;
+                      // Clean up all sprites for results screen
+                      bulletsRef.current = [];
+                      enemiesRef.current = [];
+                      powerUpsRef.current = [];
+                  }
+              }
+              
+              enemiesRef.current = enemiesRef.current.filter(e => e.active);
+              particlesRef.current.forEach(p => { p.x += p.dx * timeScale; p.y += p.dy * timeScale; p.life -= 0.03 * timeScale; });
               particlesRef.current = particlesRef.current.filter(p => p.life > 0);
+
+          } else if (gameState === GameState.CHALLENGE_RESULTS) {
+              challengeWaveTimerRef.current += dt;
+              if (challengeWaveTimerRef.current > 4000) {
+                  setGameState(GameState.VICTORY);
+                  bulletsRef.current = [];
+                  activePowerUpsRef.current = []; 
+                  powerUpsRef.current = []; 
+                  onActivePowerUpsChange([]); 
+                  stopUfoSound(); 
+                  playSound('warp');
+                  setTimeout(() => {
+                      if (livesRef.current > 0) {
+                        levelRef.current++; 
+                        onLevelUpdate(levelRef.current);
+                        setGameState(GameState.PLAYING);
+                        prepareWave(levelRef.current);
+                      }
+                  }, 3000);
+              }
           }
       }
 
       const ctx = canvasRef.current?.getContext('2d');
       if (ctx) {
-          ctx.fillStyle = '#050505';
-          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
+          ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
           nebulaeRef.current.forEach(n => {
               const gradient = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.radius);
               const hue = (n.colorBase + n.colorVar) % 360;
               gradient.addColorStop(0, `hsla(${hue}, 60%, 40%, 0.5)`);
               gradient.addColorStop(1, `hsla(${hue}, 60%, 40%, 0)`);
-              ctx.fillStyle = gradient;
-              ctx.beginPath();
-              ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
-              ctx.fill();
+              ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2); ctx.fill();
           });
-
           supernovasRef.current.forEach(s => {
               const gradient = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.size);
               gradient.addColorStop(0, `rgba(255, 255, 255, ${s.life * 0.4})`);
               gradient.addColorStop(0.2, `rgba(255, 200, 100, ${s.life * 0.25})`);
               gradient.addColorStop(1, `rgba(255, 200, 100, 0)`);
-              ctx.fillStyle = gradient;
-              ctx.beginPath();
-              ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
-              ctx.fill();
+              ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2); ctx.fill();
           });
-
-          starsRef.current.forEach(s => {
-             const alpha = Math.floor(s.brightness * 255).toString(16).padStart(2,'0');
-             ctx.fillStyle = `#ffffff${alpha}`;
-             ctx.fillRect(s.x, s.y, s.size, s.size);
-          });
+          starsRef.current.forEach(s => { const alpha = Math.floor(s.brightness * 255).toString(16).padStart(2,'0'); ctx.fillStyle = `#ffffff${alpha}`; ctx.fillRect(s.x, s.y, s.size, s.size); });
 
           if (gameState === GameState.INTRO && introStarted) {
               const lineDuration = 3000;
-              const fadeDuration = 500;
-              const holdDuration = 2000;
-              const elapsed = introTimeElapsedRef.current;
-              const lineIndex = Math.floor(elapsed / lineDuration);
-              
+              const lineIndex = Math.floor(introTimeElapsedRef.current / lineDuration);
               if (lineIndex < INTRO_LINES.length) {
-                  const lineTime = elapsed % lineDuration;
-                  let opacity = 0;
-                  if (lineTime < fadeDuration) {
-                      opacity = lineTime / fadeDuration;
-                  } else if (lineTime < fadeDuration + holdDuration) {
-                      opacity = 1;
-                  } else {
-                      opacity = 1 - (lineTime - (fadeDuration + holdDuration)) / fadeDuration;
-                  }
-                  
+                  const lineTime = introTimeElapsedRef.current % lineDuration;
+                  let opacity = 1;
+                  if (lineTime < 500) opacity = lineTime / 500;
+                  else if (lineTime > 2500) opacity = Math.max(0, (3000 - lineTime) / 500);
+
                   ctx.save();
-                  ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
-                  ctx.fillStyle = '#ffff00';
                   ctx.textAlign = 'center';
-                  ctx.font = '28px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'; 
+                  ctx.fillStyle = `rgba(255, 255, 0, ${opacity})`;
+                  ctx.shadowColor = `rgba(255, 255, 0, ${opacity * 0.8})`;
+                  ctx.shadowBlur = 12;
+                  ctx.shadowOffsetX = 0;
+                  ctx.shadowOffsetY = 0;
+                  ctx.font = '14px "Press Start 2P"';
                   ctx.fillText(INTRO_LINES[lineIndex], CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
                   ctx.restore();
               }
           }
 
-          if (playerRef.current && playerRef.current.active && (gameState === GameState.PLAYING || gameState === GameState.VICTORY || gameState === GameState.PAUSED)) {
+          if (playerRef.current && playerRef.current.active && (gameState === GameState.PLAYING || gameState === GameState.VICTORY || gameState === GameState.PAUSED || gameState === GameState.CHALLENGE_PLAYING || gameState === GameState.CHALLENGE_INTRO || gameState === GameState.CHALLENGE_RESULTS)) {
              const sprite = spriteCacheRef.current['PLAYER'];
              if (sprite) {
                  ctx.drawImage(sprite, playerRef.current.pos.x, playerRef.current.pos.y);
                  const shield = activePowerUpsRef.current.find(p => p.type === 'SHIELD');
-                 if (shield) {
-                     const shouldDrawShield = shield.timeLeft > (POWERUP_DURATION * 0.3) || Math.floor(Date.now() / 100) % 2 === 0;
-                     if (shouldDrawShield) {
-                        ctx.strokeStyle = '#0088ff';
-                        ctx.lineWidth = 2;
-                        ctx.beginPath();
-                        ctx.arc(playerRef.current.pos.x + playerRef.current.width/2, playerRef.current.pos.y + playerRef.current.height/2, playerRef.current.width * 0.8, 0, Math.PI * 2);
-                        ctx.stroke();
-                     }
+                 if (shield && (shield.timeLeft > (POWERUP_DURATION * 0.3) || Math.floor(Date.now() / 100) % 2 === 0)) {
+                    ctx.strokeStyle = '#0088ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(playerRef.current.pos.x + playerRef.current.width/2, playerRef.current.pos.y + playerRef.current.height/2, playerRef.current.width * 0.8, 0, Math.PI * 2); ctx.stroke();
                  }
              }
           }
-
           if (mysteryShipRef.current && mysteryShipRef.current.active) {
-              const ufo = mysteryShipRef.current;
               const sprite = spriteCacheRef.current['UFO'];
-              if (sprite) ctx.drawImage(sprite, ufo.pos.x, ufo.pos.y);
+              if (sprite) ctx.drawImage(sprite, mysteryShipRef.current.pos.x, mysteryShipRef.current.pos.y);
           }
-
-          powerUpsRef.current.forEach(p => {
-              if (p.active) {
-                  const sprite = spriteCacheRef.current[p.spriteKey || 'POWERUP_RAPID'];
-                  if (sprite) ctx.drawImage(sprite, p.pos.x, p.pos.y);
-              }
-          });
-
           enemiesRef.current.forEach(e => {
               if (e.active && e.opacity > 0.1) {
                   const sprite = spriteCacheRef.current[e.spriteKey || 'BEE'];
-                  if (sprite) {
-                      ctx.save();
-                      ctx.globalAlpha = e.opacity;
-                      ctx.drawImage(sprite, e.pos.x, e.pos.y);
-                      ctx.restore();
-                  }
+                  if (sprite) { ctx.save(); ctx.globalAlpha = e.opacity; ctx.drawImage(sprite, e.pos.x, e.pos.y); ctx.restore(); }
               }
           });
+          if (gameState !== GameState.VICTORY && gameState !== GameState.CHALLENGE_RESULTS) bulletsRef.current.forEach(b => { if (b.active) { ctx.fillStyle = b.color; ctx.fillRect(b.pos.x, b.pos.y, b.width, b.height); } });
+          particlesRef.current.forEach(p => { ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, p.size, p.size); ctx.globalAlpha = 1.0; });
 
-          if (gameState !== GameState.VICTORY) {
-            bulletsRef.current.forEach(b => {
-                if (b.active) {
-                    ctx.fillStyle = b.color;
-                    ctx.fillRect(b.pos.x, b.pos.y, b.width, b.height);
-                }
-            });
+          if (gameState === GameState.CHALLENGE_INTRO) {
+              ctx.save();
+              ctx.textAlign = 'center';
+              const pulse = (Math.sin(Date.now() / 200) * 0.5) + 0.5;
+              ctx.globalAlpha = 0.4 + (pulse * 0.6);
+              ctx.fillStyle = '#22d3ee'; 
+              ctx.font = '22px "Press Start 2P"';
+              ctx.fillText('CHALLENGE SECTOR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+              ctx.globalAlpha = 1.0;
+              ctx.fillStyle = '#ffffff';
+              ctx.font = '14px "Press Start 2P"';
+              ctx.fillText(`FIRE IN ${Math.max(1, countdownValueRef.current)}...`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 25);
+              ctx.restore();
           }
 
-          particlesRef.current.forEach(p => {
-             ctx.fillStyle = p.color;
-             ctx.globalAlpha = p.life;
-             ctx.fillRect(p.x, p.y, p.size, p.size);
-             ctx.globalAlpha = 1.0;
-          });
-
-          if (gameState === GameState.PLAYING || gameState === GameState.VICTORY || gameState === GameState.PAUSED) {
+          if (gameState === GameState.CHALLENGE_RESULTS) {
+              ctx.save();
+              ctx.textAlign = 'center';
+              const pulse = (Math.sin(Date.now() / 200) * 0.5) + 0.5;
+              ctx.globalAlpha = 0.4 + (pulse * 0.6);
+              ctx.fillStyle = '#facc15'; 
+              ctx.font = '24px "Press Start 2P"';
+              ctx.fillText('WELL DONE!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+              ctx.globalAlpha = 1.0;
               ctx.fillStyle = '#ffffff';
-              ctx.font = '10px "Press Start 2P"';
-              ctx.textAlign = 'right';
-              ctx.fillText(`SECTOR ${levelRef.current}`, CANVAS_WIDTH - 20, CANVAS_HEIGHT - 5);
+              ctx.font = '14px "Press Start 2P"';
+              ctx.fillText(`ENEMIES HIT: ${challengeHitCountRef.current}`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 25);
+              ctx.restore();
           }
 
           if (respawnStateRef.current === 'WAITING') {
               ctx.save();
               ctx.textAlign = 'center';
-              ctx.shadowBlur = 30;
-              ctx.shadowColor = 'rgba(255, 255, 0, 1.0)';
-              ctx.fillStyle = '#ffff00';
+              const pulse = (Math.sin(Date.now() / 200) * 0.5) + 0.5;
+              ctx.globalAlpha = 0.4 + (pulse * 0.6);
+              ctx.fillStyle = '#facc15';
               ctx.font = '24px "Press Start 2P"';
               ctx.fillText('READY?', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-              ctx.shadowBlur = 10;
-              ctx.fillText('READY?', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-              ctx.shadowBlur = 0;
+              ctx.globalAlpha = 1.0;
               ctx.fillStyle = '#ffffff';
               ctx.font = '14px "Press Start 2P"';
-              const displayVal = Math.max(1, countdownValueRef.current);
-              ctx.fillText(`FIRE IN ${displayVal}...`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 25);
+              ctx.fillText(`FIRE IN ${Math.max(1, countdownValueRef.current)}...`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 25);
               ctx.restore();
           }
       }
-
       animationFrameId = requestAnimationFrame(loop);
     };
-
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [gameState, introStarted, onScoreUpdate, onLivesUpdate, onActivePowerUpsChange, setGameState, highScore, resetGame]);
+  }, [gameState, introStarted, onScoreUpdate, onLivesUpdate, onLevelUpdate, onActivePowerUpsChange, setGameState, highScore, resetGame]);
 
   return (
     <div className="relative">
-      <canvas 
-        ref={canvasRef} 
-        width={CANVAS_WIDTH} 
-        height={CANVAS_HEIGHT}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onMouseDown={handleMouseDown}
-        className="block bg-black border-4 border-neutral-800 rounded-sm shadow-2xl"
-        style={{ 
-            width: '100%', 
-            height: 'auto', 
-            maxWidth: '100%',
-            imageRendering: 'pixelated',
-            touchAction: 'none'
-        }}
-      />
-
+      <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} onMouseDown={handleMouseDown} className="block bg-black border-4 border-neutral-800 rounded-sm shadow-2xl" style={{ width: '100%', height: 'auto', maxWidth: '100%', imageRendering: 'pixelated', touchAction: 'none' }} />
       {gameState === GameState.INTRO && !introStarted && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/90 text-white flex-col font-['Press_Start_2P'] z-30 cursor-pointer" 
-          onClick={() => {
-            setIntroStarted(true);
-            startIntroAmbience();
-          }}>
+        <div className="absolute inset-0 flex items-center justify-center bg-black/90 text-white flex-col font-['Press_Start_2P'] z-30 cursor-pointer" onClick={() => { setIntroStarted(true); startIntroAmbience(); }}>
           <div className="animate-pulse text-center">
-            <h1 className="text-yellow-400 text-2xl mb-8 tracking-widest" style={{ textShadow: '0 0 15px rgba(255,255,0,0.7)'}}>
-              PIPPIN'S REVENGE
-            </h1>
+            <h1 className="text-yellow-400 text-2xl mb-8 tracking-widest" style={{ textShadow: '0 0 15px rgba(255,255,0,0.7)'}}>PIPPIN'S REVENGE</h1>
             <p className="text-xs text-white mb-2 tracking-widest uppercase">A Galaxy in Peril</p>
             <p className="text-[10px] text-gray-400 mt-10">TAP TO BEGIN MISSION</p>
           </div>
         </div>
       )}
-      
       {gameState === GameState.START && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white flex-col font-['Press_Start_2P'] z-20 cursor-pointer" onClick={() => {
-              setGameState(GameState.PLAYING);
-              resetGame();
-          }}>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-white flex-col font-['Press_Start_2P'] z-20 cursor-pointer" onClick={() => { setGameState(GameState.PLAYING); resetGame(); }}>
              <div className="animate-pulse text-center">
                 <p className="text-yellow-400 mb-6 text-xl">READY?</p>
                 <p className="text-xs text-white mb-2">PRESS START / ENTER</p>
@@ -1510,7 +1492,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
              </div>
           </div>
       )}
-      
       {gameState === GameState.PAUSED && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white flex-col font-['Press_Start_2P'] z-20 cursor-pointer" onClick={() => setGameState(GameState.PLAYING)}>
              <div className="animate-pulse text-center">
@@ -1519,20 +1500,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
              </div>
           </div>
       )}
-
       {gameState === GameState.GAME_OVER && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white flex-col font-['Press_Start_2P'] z-20 cursor-pointer" onClick={() => {
-                 setGameState(GameState.PLAYING);
-                 resetGame();
-             }}>
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white flex-col font-['Press_Start_2P'] z-20 cursor-pointer" onClick={() => { setGameState(GameState.PLAYING); resetGame(); }}>
              <p className="text-red-600 mb-4 text-2xl drop-shadow-md">GAME OVER</p>
              <p className="text-sm mb-8">FINAL SCORE: {scoreRef.current}</p>
-             <div className="animate-pulse text-xs text-yellow-200">
-                 TRY AGAIN?
-             </div>
+             <div className="animate-pulse text-xs text-yellow-200">TRY AGAIN?</div>
           </div>
       )}
-
       {gameState === GameState.VICTORY && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-white flex-col font-['Press_Start_2P'] z-20">
              <p className="text-cyan-400 mb-4 text-xl drop-shadow-md animate-bounce">SECTOR {levelRef.current} CLEAR</p>

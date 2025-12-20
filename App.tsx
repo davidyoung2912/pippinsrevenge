@@ -25,6 +25,7 @@ const SpriteIcon: React.FC<SpriteIconProps> = ({ sprite, palette }) => (
 function App() {
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(3);
+  const [level, setLevel] = useState(1);
   const [gameState, setGameState] = useState<GameState>(GameState.INTRO);
   const [highScore, setHighScore] = useState(0);
   const [activePowerUps, setActivePowerUps] = useState<ActivePowerUp[]>([]);
@@ -89,6 +90,7 @@ function App() {
         <GameCanvas 
           onScoreUpdate={setScore}
           onLivesUpdate={setLives}
+          onLevelUpdate={setLevel}
           onActivePowerUpsChange={setActivePowerUps}
           gameState={gameState}
           setGameState={setGameState}
@@ -100,16 +102,19 @@ function App() {
       </div>
 
       {/* Footer / Instructions */}
-      <div className="w-full max-w-[480px] mt-4 flex justify-between text-white font-['Press_Start_2P'] text-[10px]">
+      <div className="w-full max-w-[480px] mt-4 flex justify-between items-end text-white font-['Press_Start_2P'] text-[10px]">
         <div className="flex gap-2 items-center">
            {Array.from({ length: Math.max(0, lives - 1) }).map((_, i) => (
              <SpriteIcon key={i} sprite={SPRITES.PLAYER} palette={PALETTES.PLAYER} />
            ))}
         </div>
-        <div className="text-gray-400 text-[8px] text-center hidden sm:block">
-           <p className="mb-1">CONTROLS</p>
-           <p>KEYBOARD: ARROWS / SPACE</p>
-           <p>GAMEPAD: STICK / A BUTTON</p>
+        <div className="text-gray-400 text-[7px] text-center hidden sm:block">
+           <p className="mb-1">ARROWS: MOVE • SPACE: FIRE</p>
+           <p>GAMEPAD: STICK + A BUTTON</p>
+        </div>
+        <div className="flex flex-col items-end">
+          <span className="text-blue-400 text-[8px] font-sans font-bold mb-1 tracking-wider">SECTOR</span>
+          <span className="text-white text-base tracking-widest">{level}</span>
         </div>
       </div>
     </div>
