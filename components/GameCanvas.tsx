@@ -105,7 +105,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const powerUpsRef = useRef<PowerUp[]>([]);
   const activePowerUpsRef = useRef<ActivePowerUp[]>([]);
   const lastActivePowerUpsCountRef = useRef(0);
-  const powerUpCooldownsRef = useRef<Record<PowerUpType, number>>({ 'RAPID_FIRE': 0, 'SHIELD': 0 });
+  const powerUpCooldownsRef = useRef<Record<PowerUpType, number>>({ 'RAPID_FIRE': 0, 'SHIELD': 0, 'SPEED_UP': 0 });
   const wasActiveRef = useRef(false); // Track if we need to send a clear update
 
   const barriersRef = useRef<Barrier[]>([]);
@@ -221,7 +221,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const spawnPowerUp = (x: number, y: number) => {
-     if (Math.random() > 0.03) return;
+     if (Math.random() > 0.04) return; 
      const isFormationSettled = spawnQueueRef.current.length === 0 && !enemiesRef.current.some(e => e.state === 'ENTERING');
      if (!isFormationSettled) return;
 
@@ -236,13 +236,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
      const shieldCooldown = powerUpCooldownsRef.current['SHIELD'] > 0;
      if (!shieldActive && !shieldFalling && !shieldCooldown) availableTypes.push('SHIELD');
 
+     const speedActive = activePowerUpsRef.current.some(p => p.type === 'SPEED_UP');
+     const speedFalling = powerUpsRef.current.some(p => p.type === 'SPEED_UP');
+     const speedCooldown = powerUpCooldownsRef.current['SPEED_UP'] > 0;
+     if (!speedActive && !speedFalling && !speedCooldown) availableTypes.push('SPEED_UP');
+
      if (availableTypes.length === 0) return;
 
      const type = availableTypes[Math.floor(Math.random() * availableTypes.length)];
-     const spriteKey = type === 'RAPID_FIRE' ? 'POWERUP_RAPID' : 'POWERUP_SHIELD';
+     const spriteKey = type === 'RAPID_FIRE' ? 'POWERUP_RAPID' : (type === 'SHIELD' ? 'POWERUP_SHIELD' : 'POWERUP_SPEED');
      const sprite = SPRITES[spriteKey];
-     const color = type === 'RAPID_FIRE' ? COLORS.POWERUP_RAPID : COLORS.POWERUP_SHIELD;
-     const palette = type === 'RAPID_FIRE' ? PALETTES.POWERUP_RAPID : PALETTES.POWERUP_SHIELD;
+     const color = COLORS[spriteKey as keyof typeof COLORS] as string;
+     const palette = PALETTES[spriteKey as keyof typeof PALETTES];
 
      powerUpsRef.current.push({
          id: `powerup_${Date.now()}_${Math.random()}`,
@@ -337,7 +342,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const types: ('BEE' | 'BUTTERFLY' | 'GALAXIAN' | 'SCORPION' | 'ZAKO')[] = ['BEE', 'BUTTERFLY', 'GALAXIAN', 'SCORPION', 'ZAKO'];
     const patterns = [0, 1, 2, 3, 4];
     
-    // Pick unused sprite and pattern
     const availableTypes = types.filter(t => !challengeUsedTypesRef.current.includes(t));
     const availablePatterns = patterns.filter(p => !challengeUsedPatternsRef.current.includes(p));
     
@@ -445,7 +449,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       const stepsSwirl = 140; 
       const stepsExit = 40;
 
-      // Phase 1: Move from bottom to center
       for (let i = 0; i <= stepsApproach; i++) {
           const t = i / stepsApproach;
           path.push({
@@ -454,18 +457,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           });
       }
 
-      // Phase 2: Swirl out slowly
       for (let i = 0; i <= stepsSwirl; i++) {
           const t = i / stepsSwirl;
-          const angle = -Math.PI / 2 + t * Math.PI * 6; // ~3 rotations
-          const radius = t * 140; // Expand outwards
+          const angle = -Math.PI / 2 + t * Math.PI * 6; 
+          const radius = t * 140; 
           path.push({
               x: centerX + Math.cos(angle) * radius,
               y: centerY + Math.sin(angle) * radius
           });
       }
 
-      // Phase 3: Head to formation position
       const lastPos = path[path.length - 1];
       for (let i = 0; i <= stepsExit; i++) {
           const t = i / stepsExit;
@@ -665,7 +666,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           cloakTimer: 0,
           opacity: 1,
           divePhase: 0,
-          diveAngle: 0
+          diveAngle: 0,
+          shieldTimer: 0
         });
       }
     }
@@ -692,19 +694,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const spawnEnemyBullet = (enemy: Enemy) => {
+    // Increased occurrence rate by 25% (from 0.25 to 0.3125)
+    const isElectric = Math.random() < 0.3125;
     bulletsRef.current.push({
       id: `bullet_${Date.now()}_${Math.random()}`,
       pos: { x: enemy.pos.x + enemy.width / 2, y: enemy.pos.y + enemy.height },
-      vel: { dx: 0, dy: ENEMY_BULLET_SPEED },
-      width: 4,
-      height: 12,
-      color: COLORS.BULLET_ENEMY,
+      vel: { dx: 0, dy: isElectric ? ENEMY_BULLET_SPEED * 1.3 : ENEMY_BULLET_SPEED },
+      width: isElectric ? 12 : 4,
+      height: isElectric ? 12 : 12,
+      color: isElectric ? COLORS.BARRIER : COLORS.BULLET_ENEMY,
       sprite: [], 
       active: true,
       owner: 'ENEMY',
-      ownerId: enemy.id
+      ownerId: enemy.id,
+      isElectricBall: isElectric
     });
-    playSound('enemy_shoot');
+    if (isElectric) playSound('barrier_hit');
+    else playSound('enemy_shoot');
   };
 
   const resetGame = useCallback(() => {
@@ -723,7 +729,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     powerUpsRef.current = [];
     barriersRef.current = [];
     spawnQueueRef.current = [];
-    powerUpCooldownsRef.current = { 'RAPID_FIRE': 0, 'SHIELD': 0 };
+    powerUpCooldownsRef.current = { 'RAPID_FIRE': 0, 'SHIELD': 0, 'SPEED_UP': 0 };
     spawnPlayer();
     prepareWave(1);
     stopUfoSound();
@@ -1027,19 +1033,66 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             }
           }
 
+          const handlePlayerControls = () => {
+              if (playerRef.current && playerRef.current.active && respawnStateRef.current === 'NONE') {
+                  const isSpeedUp = activePowerUpsRef.current.some(p => p.type === 'SPEED_UP');
+                  const currentMoveSpeed = isSpeedUp ? PLAYER_SPEED * 1.5 : PLAYER_SPEED;
+
+                  if (input.left) playerRef.current.pos.x -= currentMoveSpeed * timeScale;
+                  if (input.right) playerRef.current.pos.x += currentMoveSpeed * timeScale;
+                  if (touchXRef.current !== null) {
+                      const pCenter = playerRef.current.pos.x + playerRef.current.width / 2;
+                      if (touchXRef.current < pCenter - 5) playerRef.current.pos.x -= currentMoveSpeed * timeScale;
+                      if (touchXRef.current > pCenter + 5) playerRef.current.pos.x += currentMoveSpeed * timeScale;
+                  }
+                  
+                  playerRef.current.pos.x = Math.max(10, Math.min(CANVAS_WIDTH - playerRef.current.width - 10, playerRef.current.pos.x));
+
+                  if (fireCooldownRef.current > 0) fireCooldownRef.current -= 1 * timeScale;
+                  const shouldFire = input.fire || (isMobileRef.current && fireCooldownRef.current <= 0);
+                  const isRapidFire = activePowerUpsRef.current.some(p => p.type === 'RAPID_FIRE');
+                  const playerBullets = bulletsRef.current.filter(b => b.owner === 'PLAYER');
+                  
+                  if (shouldFire && fireCooldownRef.current <= 0 && playerBullets.length < (isRapidFire ? 4 : 2)) {
+                      bulletsRef.current.push({
+                          id: `p_bullet_${Date.now()}`,
+                          pos: { x: playerRef.current.pos.x + playerRef.current.width / 2 - 2, y: playerRef.current.pos.y },
+                          vel: { dx: 0, dy: -BULLET_SPEED },
+                          width: 4, height: 12, color: COLORS.BULLET_PLAYER, sprite: [], active: true, owner: 'PLAYER'
+                      });
+                      playSound('shoot');
+                      fireCooldownRef.current = isRapidFire ? FIRE_COOLDOWN_RAPID : FIRE_COOLDOWN_DEFAULT; 
+                  }
+                  
+                  if (gameState === GameState.PLAYING) {
+                      const pRect = { x: playerRef.current.pos.x, y: playerRef.current.pos.y, w: playerRef.current.width, h: playerRef.current.height };
+                      powerUpsRef.current.forEach(p => {
+                          if (p.active && p.pos.x < pRect.x + pRect.w && p.pos.x + p.width > pRect.x && p.pos.y < pRect.y + pRect.h && p.pos.y + p.height > pRect.y) {
+                              p.active = false;
+                              playSound('powerup');
+                              const newActive = [...activePowerUpsRef.current, { type: p.type, timeLeft: POWERUP_DURATION }];
+                              activePowerUpsRef.current = newActive;
+                              onActivePowerUpsChange(newActive);
+                          }
+                      });
+                  }
+              }
+          };
+
           if (gameState === GameState.PLAYING) {
               if (enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0 && !mysteryShipRef.current) {
                   if (waveTimerRef.current === 0) bulletsRef.current = [];
                   waveTimerRef.current += dt;
                   if (waveTimerRef.current > 3000) {
                       waveTimerRef.current = 0;
-                      // Trigger Challenge only every 3 levels
                       if (levelRef.current % 3 === 0) {
                         setGameState(GameState.CHALLENGE_INTRO);
                         challengeWaveTimerRef.current = 0;
                         countdownValueRef.current = 3;
                         challengeUsedTypesRef.current = [];
                         challengeUsedPatternsRef.current = [];
+                        respawnStateRef.current = 'NONE';
+                        if (playerRef.current) playerRef.current.active = true;
                       } else {
                         setGameState(GameState.VICTORY);
                         bulletsRef.current = [];
@@ -1095,41 +1148,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               }
 
               const isVictorySequence = enemiesRef.current.length === 0 && spawnQueueRef.current.length === 0 && !mysteryShipRef.current;
-
-              if (playerRef.current && playerRef.current.active && respawnStateRef.current === 'NONE' && !isVictorySequence) {
-                  if (input.left) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
-                  if (input.right) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
-                  if (touchXRef.current !== null) {
-                      const pCenter = playerRef.current.pos.x + playerRef.current.width / 2;
-                      if (touchXRef.current < pCenter - 5) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
-                      if (touchXRef.current > pCenter + 5) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
-                  }
-                  playerRef.current.pos.x = Math.max(10, Math.min(CANVAS_WIDTH - playerRef.current.width - 10, playerRef.current.pos.x));
-
-                  if (fireCooldownRef.current > 0) fireCooldownRef.current -= 1 * timeScale;
-                  const shouldFire = input.fire || (isMobileRef.current && fireCooldownRef.current <= 0);
-                  const isRapidFire = activePowerUpsRef.current.some(p => p.type === 'RAPID_FIRE');
-                  const playerBullets = bulletsRef.current.filter(b => b.owner === 'PLAYER');
-                  if (shouldFire && fireCooldownRef.current <= 0 && playerBullets.length < (isRapidFire ? 4 : 2)) {
-                      bulletsRef.current.push({
-                          id: `p_bullet_${Date.now()}`,
-                          pos: { x: playerRef.current.pos.x + playerRef.current.width / 2 - 2, y: playerRef.current.pos.y },
-                          vel: { dx: 0, dy: -BULLET_SPEED },
-                          width: 4, height: 12, color: COLORS.BULLET_PLAYER, sprite: [], active: true, owner: 'PLAYER'
-                      });
-                      playSound('shoot');
-                      fireCooldownRef.current = isRapidFire ? FIRE_COOLDOWN_RAPID : FIRE_COOLDOWN_DEFAULT; 
-                  }
-                  const pRect = { x: playerRef.current.pos.x, y: playerRef.current.pos.y, w: playerRef.current.width, h: playerRef.current.height };
-                  powerUpsRef.current.forEach(p => {
-                      if (p.active && p.pos.x < pRect.x + pRect.w && p.pos.x + p.width > pRect.x && p.pos.y < pRect.y + pRect.h && p.pos.y + p.height > pRect.y) {
-                          p.active = false;
-                          playSound('powerup');
-                          const newActive = [...activePowerUpsRef.current, { type: p.type, timeLeft: POWERUP_DURATION }];
-                          activePowerUpsRef.current = newActive;
-                          onActivePowerUpsChange(newActive);
-                      }
-                  });
+              
+              if (!isVictorySequence) {
+                handlePlayerControls();
               }
 
               if (spawnQueueRef.current.length > 0) {
@@ -1148,6 +1169,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
               if (respawnStateRef.current === 'NONE') { 
                 enemiesRef.current.forEach(enemy => {
+                  if (enemy.shieldTimer && enemy.shieldTimer > 0) enemy.shieldTimer -= 1 * timeScale;
+                  if (enemy.tractorBeamActive && enemy.tractorBeamTimer) {
+                      enemy.tractorBeamTimer -= 1 * timeScale;
+                      if (enemy.tractorBeamTimer <= 0) {
+                        enemy.tractorBeamActive = false;
+                      }
+                      if (playerRef.current && playerRef.current.active) {
+                          const px = playerRef.current.pos.x + playerRef.current.width / 2;
+                          const ex = enemy.pos.x + enemy.width / 2;
+                          if (Math.abs(px - ex) < 40 && playerRef.current.pos.y > enemy.pos.y) {
+                              playerRef.current.pos.x += (ex - px) * 0.05 * timeScale;
+                          }
+                      }
+                  }
+
                   if (enemy.cloakState === 'FADING_OUT') {
                     enemy.opacity -= 0.067 * timeScale; 
                     if (enemy.opacity <= 0) { enemy.opacity = 0; enemy.cloakState = 'INVISIBLE'; enemy.cloakTimer = 15; }
@@ -1189,19 +1225,29 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                         }
                       }
                   } else if (enemy.state === 'DIVING') {
-                      if (enemy.diveType === 'CIRCLE_BACK' || enemy.diveType === 'DOUBLE_CIRCLE') {
-                          if (enemy.divePhase === 0) {
-                              enemy.pos.y += enemy.vel.dy * 0.9 * timeScale; enemy.pos.x += enemy.vel.dx * 0.1 * timeScale; 
-                              if (enemy.pos.y > CANVAS_HEIGHT * 0.65) { enemy.divePhase = 1; enemy.diveAngle = 0; enemy.diveDirection = enemy.pos.x < CANVAS_WIDTH / 2 ? 1 : -1; enemy.diveStartX = enemy.pos.x; enemy.diveStartY = enemy.pos.y; }
-                          } else if (enemy.divePhase === 1) {
-                              enemy.diveAngle! += 0.13 * timeScale; const radius = 70; const cx = enemy.diveStartX! + (radius * enemy.diveDirection!); const cy = enemy.diveStartY!;
-                              enemy.pos.x = cx - Math.cos(enemy.diveAngle!) * radius * enemy.diveDirection!; enemy.pos.y = cy + Math.sin(enemy.diveAngle!) * radius;
-                              if (enemy.diveAngle! >= Math.PI * 2) { enemy.diveCycles!++; if (enemy.diveCycles! >= (enemy.diveType === 'DOUBLE_CIRCLE' ? 2 : 1)) enemy.divePhase = 2; else enemy.diveAngle = 0; }
-                          } else { enemy.pos.x += enemy.vel.dx * 1.3 * timeScale; enemy.pos.y += enemy.vel.dy * 1.3 * timeScale; }
-                      } else if (enemy.diveType === 'SINE_DIVE') { enemy.pos.y += enemy.vel.dy * 0.9 * timeScale; enemy.pos.x += Math.sin(enemy.pos.y / 45) * 5 * timeScale;
-                      } else { enemy.pos.x += enemy.vel.dx * timeScale; enemy.pos.y += enemy.vel.dy * timeScale; }
+                      if (enemy.type === 'BOSS' && Math.random() < 0.005 * timeScale && !enemy.tractorBeamActive) {
+                          enemy.tractorBeamActive = true;
+                          enemy.tractorBeamTimer = 120;
+                          playSound('barrier_hit');
+                      }
+                      
+                      if (enemy.tractorBeamActive) {
+                          enemy.pos.y += enemy.vel.dy * 0.2 * timeScale;
+                      } else {
+                          if (enemy.diveType === 'CIRCLE_BACK' || enemy.diveType === 'DOUBLE_CIRCLE') {
+                              if (enemy.divePhase === 0) {
+                                  enemy.pos.y += enemy.vel.dy * 0.9 * timeScale; enemy.pos.x += enemy.vel.dx * 0.1 * timeScale; 
+                                  if (enemy.pos.y > CANVAS_HEIGHT * 0.65) { enemy.divePhase = 1; enemy.diveAngle = 0; enemy.diveDirection = enemy.pos.x < CANVAS_WIDTH / 2 ? 1 : -1; enemy.diveStartX = enemy.pos.x; enemy.diveStartY = enemy.pos.y; }
+                              } else if (enemy.divePhase === 1) {
+                                  enemy.diveAngle! += 0.13 * timeScale; const radius = 70; const cx = enemy.diveStartX! + (radius * enemy.diveDirection!); const cy = enemy.diveStartY!;
+                                  enemy.pos.x = cx - Math.cos(enemy.diveAngle!) * radius * enemy.diveDirection!; enemy.pos.y = cy + Math.sin(enemy.diveAngle!) * radius;
+                                  if (enemy.diveAngle! >= Math.PI * 2) { enemy.diveCycles!++; if (enemy.diveCycles! >= (enemy.diveType === 'DOUBLE_CIRCLE' ? 2 : 1)) enemy.divePhase = 2; else enemy.diveAngle = 0; }
+                              } else { enemy.pos.x += enemy.vel.dx * 1.3 * timeScale; enemy.pos.y += enemy.vel.dy * 1.3 * timeScale; }
+                          } else if (enemy.diveType === 'SINE_DIVE') { enemy.pos.y += enemy.vel.dy * 0.9 * timeScale; enemy.pos.x += Math.sin(enemy.pos.y / 45) * 5 * timeScale;
+                          } else { enemy.pos.x += enemy.vel.dx * timeScale; enemy.pos.y += enemy.vel.dy * timeScale; }
+                      }
                       if (Math.random() < (Math.min(0.012, (levelRef.current === 1 ? 0.003 : 0.004) + (levelRef.current * 0.0002))) * timeScale) spawnEnemyBullet(enemy);
-                      if (enemy.pos.y > CANVAS_HEIGHT + 50) { enemy.entryIndex = 0; enemy.pos.y = -50; enemy.state = 'ENTERING'; enemy.entryPath = createBezierPath(enemy.pos, {x: enemy.formationPos.x, y: enemy.formationPos.y - 100}, enemy.formationPos, 30); enemy.cloakState = 'NONE'; enemy.opacity = 1; }
+                      if (enemy.pos.y > CANVAS_HEIGHT + 50) { enemy.entryIndex = 0; enemy.pos.y = -50; enemy.state = 'ENTERING'; enemy.entryPath = createBezierPath(enemy.pos, {x: enemy.formationPos.x, y: enemy.formationPos.y - 100}, enemy.formationPos, 30); enemy.cloakState = 'NONE'; enemy.opacity = 1; enemy.tractorBeamActive = false; }
                   }
                 });
               }
@@ -1218,7 +1264,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                               onScoreUpdate(scoreRef.current);
                               spawnPowerUp(e.pos.x + e.width/2 - 12, e.pos.y + e.height/2);
                               if (e.state === 'DIVING') diveCooldownRef.current = Math.max(20, 100 - (levelRef.current * 3));
-                          } else playSound('shield_hit');
+                          } else {
+                              playSound('shield_hit');
+                              e.shieldTimer = 15;
+                          }
                       }
                   });
                   if (b.active && mysteryShipRef.current && mysteryShipRef.current.active) {
@@ -1235,7 +1284,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               if (playerRef.current && playerRef.current.active && !isVictorySequence && respawnStateRef.current === 'NONE') {
                   const pRect = { x: playerRef.current.pos.x + 4, y: playerRef.current.pos.y + 4, w: playerRef.current.width - 8, h: playerRef.current.height - 8 };
                   bulletsRef.current.filter(b => b.owner === 'ENEMY').forEach(b => { if (b.active && b.pos.x < pRect.x + pRect.w && b.pos.x + b.width > pRect.x && b.pos.y < pRect.y + pRect.h && b.pos.y + b.height > pRect.y) { b.active = false; handlePlayerHit(); } });
-                  enemiesRef.current.forEach(e => { if (e.active && e.cloakState !== 'INVISIBLE' && e.pos.x < pRect.x + pRect.w && e.pos.x + e.width > pRect.x && e.pos.y < pRect.y + pRect.h && e.pos.y + e.height > pRect.y) { e.active = false; createExplosion(e.pos.x + e.width/2, e.pos.y + e.height/2, e.color); handlePlayerHit(); } });
+                  enemiesRef.current.forEach(e => { 
+                    if (e.active && isFormationComplete && e.cloakState !== 'INVISIBLE' && e.pos.x < pRect.x + pRect.w && e.pos.x + e.width > pRect.x && e.pos.y < pRect.y + pRect.h && e.pos.y + e.height > pRect.y) { 
+                      e.active = false; 
+                      createExplosion(e.pos.x + e.width/2, e.pos.y + e.height/2, e.color); 
+                      handlePlayerHit(); 
+                    } 
+                  });
               }
               particlesRef.current.forEach(p => { p.x += p.dx * timeScale; p.y += p.dy * timeScale; p.life -= 0.03 * timeScale; });
               particlesRef.current = particlesRef.current.filter(p => p.life > 0);
@@ -1250,6 +1305,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   challengeHitCountRef.current = 0;
                   challengeWaveActiveRef.current = false;
                   challengeWaveTimerRef.current = 0;
+                  respawnStateRef.current = 'NONE';
+                  if (playerRef.current) playerRef.current.active = true;
               }
 
           } else if (gameState === GameState.CHALLENGE_PLAYING) {
@@ -1261,7 +1318,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 }
               }
 
-              // Calculated increment multiplier to match level speed difficulty
               const speedFactor = (1.2 + Math.min(levelRef.current * 0.05, 1.3)) / 1.25;
               const challengeIncrement = 0.85 * speedFactor;
 
@@ -1277,24 +1333,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   } else enemy.active = false;
               });
 
-              if (playerRef.current && playerRef.current.active) {
-                if (input.left) playerRef.current.pos.x -= PLAYER_SPEED * timeScale;
-                if (input.right) playerRef.current.pos.x += PLAYER_SPEED * timeScale;
-                playerRef.current.pos.x = Math.max(10, Math.min(CANVAS_WIDTH - playerRef.current.width - 10, playerRef.current.pos.x));
-                if (fireCooldownRef.current > 0) fireCooldownRef.current -= 1 * timeScale;
-                const shouldFire = input.fire || (isMobileRef.current && fireCooldownRef.current <= 0);
-                const isRapidFire = activePowerUpsRef.current.some(p => p.type === 'RAPID_FIRE');
-                if (shouldFire && fireCooldownRef.current <= 0 && bulletsRef.current.filter(b => b.owner === 'PLAYER').length < (isRapidFire ? 4 : 2)) {
-                    bulletsRef.current.push({
-                        id: `p_bullet_${Date.now()}`,
-                        pos: { x: playerRef.current.pos.x + playerRef.current.width / 2 - 2, y: playerRef.current.pos.y },
-                        vel: { dx: 0, dy: -BULLET_SPEED },
-                        width: 4, height: 12, color: COLORS.BULLET_PLAYER, sprite: [], active: true, owner: 'PLAYER'
-                    });
-                    playSound('shoot');
-                    fireCooldownRef.current = isRapidFire ? FIRE_COOLDOWN_RAPID : FIRE_COOLDOWN_DEFAULT; 
-                }
-              }
+              handlePlayerControls();
 
               bulletsRef.current.forEach(b => { b.pos.x += b.vel.dx * timeScale; b.pos.y += b.vel.dy * timeScale; if (b.pos.y < -20 || b.pos.y > CANVAS_HEIGHT + 20) b.active = false; });
               bulletsRef.current = bulletsRef.current.filter(b => b.active);
@@ -1319,11 +1358,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               }
               
               if (challengeGroupIndexRef.current >= 5 && enemiesRef.current.length === 0) {
-                  // Wait for all particles to finish
                   if (particlesRef.current.length === 0) {
                       setGameState(GameState.CHALLENGE_RESULTS);
                       challengeWaveTimerRef.current = 0;
-                      // Clean up all sprites for results screen
                       bulletsRef.current = [];
                       enemiesRef.current = [];
                       powerUpsRef.current = [];
@@ -1411,13 +1448,119 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
               const sprite = spriteCacheRef.current['UFO'];
               if (sprite) ctx.drawImage(sprite, mysteryShipRef.current.pos.x, mysteryShipRef.current.pos.y);
           }
+          
+          powerUpsRef.current.forEach(p => {
+              if (p.active) {
+                  const sprite = spriteCacheRef.current[p.spriteKey || ''];
+                  if (sprite) ctx.drawImage(sprite, p.pos.x, p.pos.y);
+              }
+          });
+
+          // Draw Enemies and their "Electric Fields"
           enemiesRef.current.forEach(e => {
               if (e.active && e.opacity > 0.1) {
                   const sprite = spriteCacheRef.current[e.spriteKey || 'BEE'];
-                  if (sprite) { ctx.save(); ctx.globalAlpha = e.opacity; ctx.drawImage(sprite, e.pos.x, e.pos.y); ctx.restore(); }
+                  if (sprite) { 
+                      ctx.save(); 
+                      ctx.globalAlpha = e.opacity; 
+                      
+                      const isPermanentShield = e.type === 'BOSS' && e.health > 1;
+                      const isHitFlicker = e.shieldTimer && e.shieldTimer > 0;
+                      
+                      if ((isPermanentShield || isHitFlicker) && gameState !== GameState.CHALLENGE_PLAYING) {
+                          ctx.save();
+                          ctx.globalCompositeOperation = 'lighter';
+                          ctx.strokeStyle = COLORS.BARRIER;
+                          ctx.lineWidth = 2;
+                          const time = Date.now() / 100;
+                          const radius = (e.width + e.height) / 2 + Math.sin(time) * 3;
+                          
+                          ctx.beginPath();
+                          for (let i = 0; i < 8; i++) {
+                              const angle = (i / 8) * Math.PI * 2 + time;
+                              const dist = radius + (Math.random() - 0.5) * 10;
+                              const x = e.pos.x + e.width / 2 + Math.cos(angle) * dist;
+                              const y = e.pos.y + e.height / 2 + Math.sin(angle) * dist;
+                              if (i === 0) ctx.moveTo(x, y);
+                              else ctx.lineTo(x, y);
+                          }
+                          ctx.closePath();
+                          ctx.stroke();
+                          ctx.restore();
+                      }
+
+                      if (e.tractorBeamActive) {
+                          ctx.save();
+                          ctx.globalCompositeOperation = 'lighter';
+                          const beamWidth = 60;
+                          const beamX = e.pos.x + e.width / 2 - beamWidth / 2;
+                          const beamY = e.pos.y + e.height;
+                          const beamH = CANVAS_HEIGHT - beamY;
+                          
+                          const grad = ctx.createLinearGradient(beamX, beamY, beamX + beamWidth, beamY);
+                          grad.addColorStop(0, 'rgba(0, 255, 255, 0)');
+                          grad.addColorStop(0.5, 'rgba(0, 255, 255, 0.4)');
+                          grad.addColorStop(1, 'rgba(0, 255, 255, 0)');
+                          ctx.fillStyle = grad;
+                          ctx.fillRect(beamX, beamY, beamWidth, beamH);
+
+                          ctx.strokeStyle = '#fff';
+                          ctx.lineWidth = 1;
+                          for (let i = 0; i < 5; i++) {
+                              const yOff = (Date.now() / 5 + i * 50) % beamH;
+                              ctx.beginPath();
+                              ctx.moveTo(beamX, beamY + yOff);
+                              for (let j = 0; j < 10; j++) {
+                                  ctx.lineTo(beamX + (j / 10) * beamWidth, beamY + yOff + (Math.random() - 0.5) * 15);
+                              }
+                              ctx.stroke();
+                          }
+                          ctx.restore();
+                      }
+
+                      ctx.drawImage(sprite, e.pos.x, e.pos.y); 
+                      ctx.restore(); 
+                  }
               }
           });
-          if (gameState !== GameState.VICTORY && gameState !== GameState.CHALLENGE_RESULTS) bulletsRef.current.forEach(b => { if (b.active) { ctx.fillStyle = b.color; ctx.fillRect(b.pos.x, b.pos.y, b.width, b.height); } });
+          
+          if (gameState !== GameState.VICTORY && gameState !== GameState.CHALLENGE_RESULTS) {
+              bulletsRef.current.forEach(b => { 
+                if (b.active) { 
+                  if (b.isElectricBall) {
+                    // Custom electric ball rendering
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.strokeStyle = COLORS.BARRIER;
+                    ctx.lineWidth = 1.5;
+                    const time = Date.now() / 50;
+                    const ballRadius = 6 + Math.sin(time) * 1;
+                    
+                    ctx.beginPath();
+                    for (let i = 0; i < 6; i++) {
+                        const angle = (i / 6) * Math.PI * 2 + time * 1.5;
+                        const dist = ballRadius + (Math.random() - 0.5) * 4;
+                        const bx = b.pos.x + b.width / 2 + Math.cos(angle) * dist;
+                        const by = b.pos.y + b.height / 2 + Math.sin(angle) * dist;
+                        if (i === 0) ctx.moveTo(bx, by);
+                        else ctx.lineTo(bx, by);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                    
+                    // Add a small core
+                    ctx.fillStyle = '#fff';
+                    ctx.beginPath();
+                    ctx.arc(b.pos.x + b.width / 2, b.pos.y + b.height / 2, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                  } else {
+                    ctx.fillStyle = b.color; 
+                    ctx.fillRect(b.pos.x, b.pos.y, b.width, b.height); 
+                  }
+                } 
+              });
+          }
           particlesRef.current.forEach(p => { ctx.fillStyle = p.color; ctx.globalAlpha = p.life; ctx.fillRect(p.x, p.y, p.size, p.size); ctx.globalAlpha = 1.0; });
 
           if (gameState === GameState.CHALLENGE_INTRO) {

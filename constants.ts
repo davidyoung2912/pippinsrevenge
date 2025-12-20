@@ -176,6 +176,18 @@ export const SPRITES = {
     [0,0,1,1,2,1,1,0,0],
     [0,0,0,1,1,1,0,0,0],
   ],
+  // Speed Up: Lightning bolt icon
+  POWERUP_SPEED: [
+    [0,0,0,0,1,1,1,0,0],
+    [0,0,0,1,1,1,0,0,0],
+    [0,0,1,1,1,0,0,0,0],
+    [0,1,1,1,1,1,1,0,0],
+    [0,0,0,1,1,1,0,0,0],
+    [0,0,1,1,1,0,0,0,0],
+    [0,1,1,1,0,0,0,0,0],
+    [0,1,1,0,0,0,0,0,0],
+    [1,1,0,0,0,0,0,0,0],
+  ],
   // Barrier: Jagged electric line
   BARRIER: [
     [0,0,1,0,0,1,0,0,1,0,0,1,0],
@@ -206,6 +218,7 @@ export const COLORS = {
   PARTICLE_EXP: ['#ff0000', '#ffff00', '#ffffff', '#ff8800'],
   POWERUP_RAPID: '#ff8800',
   POWERUP_SHIELD: '#0088ff',
+  POWERUP_SPEED: '#facc15',
   BARRIER: '#00ffff'
 };
 
@@ -225,7 +238,8 @@ export const PALETTES = {
   UFO: ['#ff0000', '#ffffff'], // Red, White
   BARRIER: ['#0088ff', '#ffffff'], // Electric Blue, White
   POWERUP_RAPID: ['#ff8800', '#ffffff'], // Orange, White
-  POWERUP_SHIELD: ['#0088ff', '#ffffff'] // Blue, White
+  POWERUP_SHIELD: ['#0088ff', '#ffffff'], // Blue, White
+  POWERUP_SPEED: ['#facc15', '#ffffff'] // Yellow, White
 };
 
 export const PIXEL_SCALE = 3;

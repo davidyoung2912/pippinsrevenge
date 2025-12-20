@@ -68,12 +68,18 @@ export interface Enemy extends Entity {
   cloakState: 'NONE' | 'FADING_OUT' | 'INVISIBLE' | 'FADING_IN';
   cloakTimer: number;
   opacity: number;
+
+  // Visual Effects
+  shieldTimer?: number;
+  tractorBeamActive?: boolean;
+  tractorBeamTimer?: number;
 }
 
 export interface Bullet extends Entity {
   owner: 'PLAYER' | 'ENEMY';
   ownerId?: string; // ID of the entity that fired this bullet
   isLaser?: boolean;
+  isElectricBall?: boolean;
 }
 
 export interface Barrier extends Entity {
@@ -107,7 +113,7 @@ export interface Star {
   brightness: number;
 }
 
-export type PowerUpType = 'RAPID_FIRE' | 'SHIELD';
+export type PowerUpType = 'RAPID_FIRE' | 'SHIELD' | 'SPEED_UP';
 
 export interface PowerUp extends Entity {
   type: PowerUpType;

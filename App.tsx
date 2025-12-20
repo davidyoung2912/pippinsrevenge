@@ -42,6 +42,15 @@ function App() {
     }
   }, [score, highScore]);
 
+  const getPowerUpConfig = (type: string) => {
+    switch (type) {
+      case 'RAPID_FIRE': return { sprite: SPRITES.POWERUP_RAPID, palette: PALETTES.POWERUP_RAPID, colorClass: 'text-orange-400', barClass: 'bg-orange-400' };
+      case 'SHIELD': return { sprite: SPRITES.POWERUP_SHIELD, palette: PALETTES.POWERUP_SHIELD, colorClass: 'text-blue-400', barClass: 'bg-blue-400' };
+      case 'SPEED_UP': return { sprite: SPRITES.POWERUP_SPEED, palette: PALETTES.POWERUP_SPEED, colorClass: 'text-yellow-400', barClass: 'bg-yellow-400' };
+      default: return { sprite: SPRITES.POWERUP_RAPID, palette: PALETTES.POWERUP_RAPID, colorClass: 'text-gray-400', barClass: 'bg-gray-400' };
+    }
+  };
+
   return (
     <div className="min-h-screen bg-neutral-900 flex flex-col items-center justify-center p-2">
       {/* Arcade Cabinet Header */}
@@ -63,26 +72,29 @@ function App() {
 
       {/* Power Up Indicator Bar */}
       <div className="w-full max-w-[480px] h-8 flex justify-center items-center gap-4 mb-2">
-         {activePowerUps.map((p, i) => (
-             <div key={i} className="flex flex-col items-center bg-neutral-800/80 px-2 py-1 rounded border border-neutral-600 min-w-[100px]">
-                 <div className="flex items-center gap-2 mb-1">
-                    <SpriteIcon 
-                        sprite={p.type === 'RAPID_FIRE' ? SPRITES.POWERUP_RAPID : SPRITES.POWERUP_SHIELD} 
-                        palette={p.type === 'RAPID_FIRE' ? PALETTES.POWERUP_RAPID : PALETTES.POWERUP_SHIELD}
-                    />
-                    <span className={`text-[10px] font-['Press_Start_2P'] ${p.type === 'RAPID_FIRE' ? 'text-orange-400' : 'text-blue-400'}`}>
-                        {p.type.replace('_', ' ')}
-                    </span>
-                 </div>
-                 {/* Progress Bar */}
-                 <div className="w-full h-1 bg-neutral-700 rounded-full overflow-hidden">
-                     <div 
-                        className={`h-full ${p.type === 'RAPID_FIRE' ? 'bg-orange-400' : 'bg-blue-400'}`}
-                        style={{ width: `${(p.timeLeft / POWERUP_DURATION) * 100}%` }}
-                     />
-                 </div>
-             </div>
-         ))}
+         {activePowerUps.map((p, i) => {
+             const config = getPowerUpConfig(p.type);
+             return (
+               <div key={i} className="flex flex-col items-center bg-neutral-800/80 px-2 py-1 rounded border border-neutral-600 min-w-[100px]">
+                   <div className="flex items-center gap-2 mb-1">
+                      <SpriteIcon 
+                          sprite={config.sprite} 
+                          palette={config.palette}
+                      />
+                      <span className={`text-[10px] font-['Press_Start_2P'] ${config.colorClass}`}>
+                          {p.type.replace('_', ' ')}
+                      </span>
+                   </div>
+                   {/* Progress Bar */}
+                   <div className="w-full h-1 bg-neutral-700 rounded-full overflow-hidden">
+                       <div 
+                          className={`h-full ${config.barClass}`}
+                          style={{ width: `${(p.timeLeft / POWERUP_DURATION) * 100}%` }}
+                       />
+                   </div>
+               </div>
+             );
+         })}
       </div>
 
       {/* Game Screen */}
